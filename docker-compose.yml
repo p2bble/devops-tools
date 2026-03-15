@@ -1,0 +1,170 @@
+version: '3.8'
+
+# =============================================================================
+# Clobot Monitoring Stack v2.0
+# 구성: Prometheus + Alertmanager + Grafana + Exporters + Jandi Webhook Adapter
+# =============================================================================
+
+networks:
+  app-tier:
+    name: docker_app-tier    # 기존 HAProxy가 사용 중인 실제 네트워크 이름
+    external: true
+  monitoring-tier:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:
+
+services:
+
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: prometheus
+    restart: always
+    user: "65534:65534"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=180d'
+      - '--storage.tsdb.retention.size=50GB'
+      - '--web.listen-address=0.0.0.0:9099'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+      - '--log.level=warn'
+    ports:
+      - "127.0.0.1:9099:9099"
+    networks:
+      - monitoring-tier
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9099/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: alertmanager
+    restart: always
+    user: "65534:65534"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager/templates:/etc/alertmanager/templates:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--cluster.listen-address='
+      - '--log.level=warn'
+    ports:
+      - "127.0.0.1:9093:9093"
+    networks:
+      - monitoring-tier
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:11.1.4
+    container_name: grafana
+    restart: always
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:38889:3000"
+    environment:
+      - GF_SERVER_HTTP_PORT=3000
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme!}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel,grafana-polystat-panel
+      - GF_UNIFIED_ALERTING_ENABLED=false
+      - TZ=Asia/Seoul
+    networks:
+      - monitoring-tier
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  snmp-exporter:
+    image: prom/snmp-exporter:v0.26.0
+    container_name: snmp-exporter
+    restart: always
+    volumes:
+      - ./snmp-exporter/snmp.yml:/etc/snmp_exporter/snmp.yml:ro
+    command:
+      - '--config.file=/etc/snmp_exporter/snmp.yml'
+      - '--log.level=warn'
+    ports:
+      - "127.0.0.1:9116:9116"
+    networks:
+      - monitoring-tier
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: blackbox-exporter
+    restart: always
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    ports:
+      - "127.0.0.1:9115:9115"
+    networks:
+      - monitoring-tier
+    cap_add:
+      - NET_RAW
+
+  haproxy-exporter:
+    image: prom/haproxy-exporter:v0.15.0
+    container_name: haproxy-exporter
+    restart: always
+    command:
+      - '--haproxy.scrape-uri=http://${HAPROXY_STATS_USER}:${HAPROXY_STATS_PASSWORD}@haproxy:9001/haproxy?stats;csv'
+      - '--log.level=warn'
+    networks:
+      - app-tier
+      - monitoring-tier
+
+  jandi-adapter:
+    image: timonwong/prometheus-webhook-dingtalk:v2.1.0
+    container_name: jandi-adapter
+    restart: always
+    volumes:
+      - ./jandi-adapter/config.yml:/etc/prometheus-webhook-dingtalk/config.yml:ro
+      - ./alertmanager/templates:/etc/prometheus-webhook-dingtalk/templates:ro
+    command:
+      - '--config.file=/etc/prometheus-webhook-dingtalk/config.yml'
+      - '--log.level=warn'
+    networks:
+      - monitoring-tier
+
+  # FortiGate Exporter — 빌드 필요:
+  # git clone https://github.com/prometheus-community/fortigate_exporter ./fortigate-exporter/src
+  # fortigate-exporter:
+  #   build:
+  #     context: ./fortigate-exporter/src
+  #   image: fortigate-exporter:local
+  #   container_name: fortigate-exporter
+  #   restart: always
+  #   volumes:
+  #     - ./fortigate-exporter/fortigate-key.yaml:/config/fortigate-key.yaml:ro
+  #   command:
+  #     - '-auth-file=/config/fortigate-key.yaml'
+  #     - '-log-level=warn'
+  #   ports:
+  #     - "127.0.0.1:9710:9710"
+  #   networks:
+  #     - monitoring-tier

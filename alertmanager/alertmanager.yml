@@ -1,0 +1,93 @@
+# =============================================================================
+# Alertmanager Configuration
+# 알람 채널: 잔디(Jandi) Webhook + Gmail (Critical 백업)
+# =============================================================================
+
+global:
+  resolve_timeout: 5m
+  smtp_smarthost:     'smtp.gmail.com:587'
+  smtp_from:          'your-alert@gmail.com'
+  smtp_auth_username: 'your-alert@gmail.com'
+  smtp_auth_password: '${GMAIL_APP_PASSWORD}'   # .env에서 주입
+  smtp_require_tls:   true
+
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+route:
+  receiver: 'jandi-warning'
+  group_by: ['alertname', 'instance', 'severity']
+  group_wait:      30s
+  group_interval:  5m
+  repeat_interval: 4h
+
+  routes:
+    - matchers:
+        - 'severity = critical'
+      receiver: 'jandi-critical'
+      continue: true
+
+    - matchers:
+        - 'severity = critical'
+      receiver: 'gmail-critical'
+      repeat_interval: 1h
+
+    - matchers:
+        - 'severity = warning'
+      receiver: 'jandi-warning'
+      repeat_interval: 6h
+
+    - matchers:
+        - 'severity = info'
+      receiver: 'jandi-info'
+      repeat_interval: 24h
+
+    - matchers:
+        - 'category = hardware'
+      receiver: 'jandi-critical'
+      continue: true
+
+    - matchers:
+        - 'category = hardware'
+      receiver: 'gmail-critical'
+
+inhibit_rules:
+  - source_matchers:
+      - 'alertname = InstanceDown'
+    target_matchers:
+      - 'alertname =~ "HighCpuUsage|CriticalCpuUsage|HighMemoryUsage|CriticalMemoryUsage|LowDiskSpace|CriticalDiskSpace|HighDiskIOWait"'
+    equal: ['instance']
+
+  - source_matchers:
+      - 'severity = critical'
+    target_matchers:
+      - 'severity = warning'
+    equal: ['alertname', 'instance']
+
+receivers:
+  - name: 'jandi-critical'
+    webhook_configs:
+      - url: 'http://jandi-adapter:8060/dingtalk/jandi/send'
+        send_resolved: true
+        max_alerts: 10
+
+  - name: 'jandi-warning'
+    webhook_configs:
+      - url: 'http://jandi-adapter:8060/dingtalk/jandi/send'
+        send_resolved: true
+        max_alerts: 10
+
+  - name: 'jandi-info'
+    webhook_configs:
+      - url: 'http://jandi-adapter:8060/dingtalk/jandi/send'
+        send_resolved: false
+        max_alerts: 5
+
+  - name: 'gmail-critical'
+    email_configs:
+      - to: 'infra-team@your-company.com'
+        send_resolved: true
+        headers:
+          Subject: '[CRITICAL] {{ .CommonLabels.alertname }} - {{ .CommonLabels.instance }}'
+        html: '{{ template "email.critical.html" . }}'
+        require_tls: true

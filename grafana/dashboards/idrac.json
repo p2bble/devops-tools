@@ -1,0 +1,182 @@
+{
+  "title": "Clobot iDRAC Hardware",
+  "uid": "clobot-idrac",
+  "timezone": "Asia/Seoul",
+  "refresh": "2m",
+  "schemaVersion": 38,
+  "tags": ["clobot", "idrac", "hardware"],
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "server",
+        "type": "query",
+        "label": "서버 iDRAC",
+        "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
+        "query": "label_values(dellSystemStatus, instance)",
+        "refresh": 2,
+        "multi": false,
+        "includeAll": false,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "시스템 전체 상태 ($server)",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
+      "targets": [
+        { "expr": "dellSystemStatus{instance=\"$server\"}", "legendFormat": "시스템 상태" }
+      ],
+      "options": { "colorMode": "background" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": {
+              "3": { "text": "🟢 OK",       "color": "green"  },
+              "4": { "text": "⚠️ WARNING",  "color": "yellow" },
+              "5": { "text": "🔴 CRITICAL", "color": "red"    }
+            }}
+          ],
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green",  "value": null },
+            { "color": "yellow", "value": 4 },
+            { "color": "red",    "value": 5 }
+          ]}
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "모든 서버 시스템 상태",
+      "type": "table",
+      "gridPos": { "x": 6, "y": 0, "w": 18, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
+      "targets": [
+        { "expr": "dellSystemStatus", "instant": true, "format": "table", "legendFormat": "{{instance}}" }
+      ],
+      "transformations": [
+        { "id": "organize", "options": { "renameByName": { "instance": "iDRAC IP", "Value": "시스템 상태" }, "excludeByName": { "Time": true, "job": true } } }
+      ],
+      "fieldConfig": {
+        "overrides": [{
+          "matcher": { "id": "byName", "options": "시스템 상태" },
+          "properties": [
+            { "id": "mappings", "value": [{ "type": "value", "options": {
+              "3": { "text": "🟢 OK",       "color": "green"  },
+              "4": { "text": "⚠️ WARNING",  "color": "yellow" },
+              "5": { "text": "🔴 CRITICAL", "color": "red"    }
+            }}]},
+            { "id": "custom.displayMode", "value": "color-background" }
+          ]
+        }]
+      }
+    },
+    {
+      "id": 10,
+      "title": "온도 센서 현황 ($server)",
+      "type": "bargauge",
+      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
+      "targets": [
+        {
+          "expr": "dellTemperatureReading{instance=\"$server\"} * 0.1",
+          "legendFormat": "{{temp_name}}",
+          "instant": true
+        }
+      ],
+      "options": { "orientation": "horizontal", "displayMode": "gradient" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 60 },
+              { "color": "red",    "value": 70 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "팬 속도 RPM ($server)",
+      "type": "bargauge",
+      "gridPos": { "x": 12, "y": 5, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
+      "targets": [
+        {
+          "expr": "dellFanSpeedRPM{instance=\"$server\"}",
+          "legendFormat": "{{fan_name}}",
+          "instant": true
+        }
+      ],
+      "options": { "orientation": "horizontal", "displayMode": "gradient" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rotrpm",
+          "min": 0,
+          "max": 20000,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "green",  "value": 1000 },
+              { "color": "yellow", "value": 15000 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 20,
+      "title": "온도 트렌드 ($server)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
+      "targets": [
+        {
+          "expr": "dellTemperatureReading{instance=\"$server\"} * 0.1",
+          "legendFormat": "{{temp_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": { "lineWidth": 2 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 60 }, { "color": "red", "value": 70 }]
+          }
+        }
+      }
+    },
+    {
+      "id": 21,
+      "title": "소비 전력 추이 ($server)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
+      "targets": [
+        {
+          "expr": "dellPowerConsumptionWatts{instance=\"$server\"}",
+          "legendFormat": "전력 소비"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      }
+    }
+  ]
+}

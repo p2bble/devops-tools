@@ -1,0 +1,100 @@
+---
+# =============================================================================
+# install_monitoring_agents.yml
+# Node Exporter 일괄 설치 플레이북
+#
+# 실행 예시:
+#   전체:       ansible-playbook -i dns_inventory.ini install_monitoring_agents.yml
+#   특정 그룹:  ansible-playbook -i dns_inventory.ini install_monitoring_agents.yml --limit dmz_servers
+#   특정 서버:  ansible-playbook -i dns_inventory.ini install_monitoring_agents.yml --limit pdkcld1
+#   드라이런:   ansible-playbook -i dns_inventory.ini install_monitoring_agents.yml --check
+#
+# 현황 (2026-03 기준):
+#   gpu-server    — cAdvisor 이미 설치됨, node-exporter 없음
+#   gitlab-srv    — gitlab-ci-pipelines-exporter:8080 운영 중
+#   vm-server-01  — gitlab-runner:9252 운영 중, coredns:53 운영 중
+#   pdkcld1       — 모니터링 스택 운영 서버
+# =============================================================================
+
+- name: Install Node Exporter on all servers
+  hosts: all
+  become: yes
+  vars:
+    node_exporter_image: "prom/node-exporter:latest"
+
+  tasks:
+
+    # ------------------------------------------------------------------
+    # 사전 확인 — Docker 없으면 해당 호스트 건너뜀
+    # ------------------------------------------------------------------
+    - name: Check if Docker is installed
+      command: docker --version
+      register: docker_check
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Skip host if Docker is not installed
+      meta: end_host
+      when: docker_check.rc != 0
+
+    # ------------------------------------------------------------------
+    # Node Exporter 설치
+    # ------------------------------------------------------------------
+    - name: Check node-exporter container status
+      command: docker inspect --format="{{ '{{' }}.State.Status{{ '}}' }}" node-exporter
+      register: ne_status
+      ignore_errors: yes
+      changed_when: false
+
+    - name: node-exporter already running — skip
+      debug:
+        msg: "{{ inventory_hostname }} - node-exporter 이미 실행 중, 건너뜀"
+      when:
+        - ne_status.rc == 0
+        - ne_status.stdout == "running"
+
+    - name: Remove stopped/broken node-exporter container
+      command: docker rm -f node-exporter
+      when:
+        - ne_status.rc == 0
+        - ne_status.stdout != "running"
+
+    - name: Pull node-exporter image
+      command: docker pull {{ node_exporter_image }}
+      when: ne_status.rc != 0 or ne_status.stdout != "running"
+
+    - name: Run node-exporter
+      command: >
+        docker run -d
+        --name node-exporter
+        --restart always
+        --net host
+        --pid host
+        -v /:/host:ro,rslave
+        {{ node_exporter_image }}
+        --path.rootfs=/host
+      when: ne_status.rc != 0 or ne_status.stdout != "running"
+
+    # ------------------------------------------------------------------
+    # 설치 결과 확인
+    # ------------------------------------------------------------------
+    - name: Verify node-exporter container status
+      command: docker inspect --format="{{ '{{' }}.State.Status{{ '}}' }}" node-exporter
+      register: ne_final
+      changed_when: false
+
+    - name: Check node-exporter metrics endpoint
+      uri:
+        url: "http://localhost:9100/metrics"
+        method: GET
+        status_code: 200
+        timeout: 5
+      register: metrics_check
+      ignore_errors: yes
+
+    - name: Show result
+      debug:
+        msg: >
+          {{ inventory_hostname }} ({{ ansible_host }})
+          | container: {{ ne_final.stdout }}
+          | metrics 9100: {{ 'OK' if metrics_check.status is defined and metrics_check.status == 200 else 'FAIL' }}

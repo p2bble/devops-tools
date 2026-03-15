@@ -1,0 +1,40 @@
+# =============================================================================
+# .gitignore — Clobot Monitoring Stack
+# =============================================================================
+
+# 환경 변수 (비밀번호, API 토큰 등)
+.env
+*.env
+
+# FortiGate API 토큰
+fortigate-exporter/fortigate-key.yaml
+fortigate-exporter/fortigate.yml
+
+# Ansible 인벤토리 (SSH 비밀번호 포함)
+ansible/inventory*.ini
+dns_inventory.ini
+
+# Grafana 데이터
+grafana-data/
+
+# Prometheus 데이터
+prometheus-data/
+
+# SSL 인증서
+*.pem
+*.crt
+*.key
+ssl/
+
+# 로컬 빌드
+fortigate-exporter/src/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 에디터
+.vscode/
+.idea/
+*.swp
+*.swo

@@ -1,0 +1,223 @@
+# =============================================================================
+# Prometheus Configuration
+# 실제 운영 환경에 맞게 IP/도메인 수정 필요
+# =============================================================================
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  scrape_timeout:      10s
+  external_labels:
+    datacenter: 'your-datacenter'
+    environment: 'production'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+      timeout: 10s
+
+rule_files:
+  - '/etc/prometheus/rules/*.yml'
+
+scrape_configs:
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9099']
+
+  # ---------------------------------------------------------------------------
+  # 서버 OS 모니터링 (Node Exporter :9100)
+  # ---------------------------------------------------------------------------
+  - job_name: 'node-exporter'
+    static_configs:
+      # DMZ 서버
+      - targets: ['DMZ_SERVER_1_IP:9100']
+        labels:
+          nodename: 'server-name-1'
+          role: 'infra'
+
+      - targets: ['DMZ_SERVER_2_IP:9100']
+        labels:
+          nodename: 'server-name-2'
+          role: 'dev'
+
+      # Internal 서버
+      - targets: ['INTERNAL_SERVER_1_IP:9100']
+        labels:
+          nodename: 'vm-server-01'
+          role: 'infra'
+
+      - targets: ['INTERNAL_SERVER_2_IP:9100']
+        labels:
+          nodename: 'gitlab-srv'
+          role: 'devops'
+
+  # ---------------------------------------------------------------------------
+  # KVM / Libvirt 가상화 모니터링
+  # ---------------------------------------------------------------------------
+  - job_name: 'libvirt-exporter'
+    static_configs:
+      - targets: ['HYPERVISOR_1_IP:9177']
+        labels:
+          host: 'vm-server-01'
+      - targets: ['HYPERVISOR_2_IP:9177']
+        labels:
+          host: 'main-server'
+
+  # ---------------------------------------------------------------------------
+  # Docker 컨테이너 모니터링 (cAdvisor :8080)
+  # ---------------------------------------------------------------------------
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['CADVISOR_HOST_IP:8080']
+        labels:
+          host: 'server-name'
+
+  # ---------------------------------------------------------------------------
+  # GitLab 컴포넌트 모니터링
+  # ---------------------------------------------------------------------------
+  - job_name: 'gitlab'
+    scrape_interval: 30s
+    scrape_timeout: 25s
+    static_configs:
+      - targets:
+          - 'GITLAB_IP:9100'   # Node Exporter
+          - 'GITLAB_IP:9121'   # Redis
+          - 'GITLAB_IP:9187'   # PostgreSQL
+          - 'GITLAB_IP:9168'   # Puma (Rails)
+          - 'GITLAB_IP:9229'   # Workhorse
+          - 'GITLAB_IP:8082'   # Sidekiq
+          - 'GITLAB_RUNNER_IP:9252'   # GitLab Runner
+
+  - job_name: 'gitlab-ci-pipelines'
+    static_configs:
+      - targets: ['GITLAB_IP:8080']
+        labels:
+          nodename: 'gitlab-srv'
+
+  # ---------------------------------------------------------------------------
+  # HAProxy 로드밸런서
+  # ---------------------------------------------------------------------------
+  - job_name: 'haproxy'
+    static_configs:
+      - targets: ['haproxy-exporter:9101']
+
+  # ---------------------------------------------------------------------------
+  # HTTP/HTTPS 엔드포인트 가용성 (Blackbox)
+  # ---------------------------------------------------------------------------
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://your-monitoring-domain.example.com
+          - https://your-service-domain.example.com
+          - http://INTERNAL_SERVICE_IP
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # 자체 서명 인증서 서비스
+  - job_name: 'blackbox-http-insecure'
+    metrics_path: /probe
+    params:
+      module: [http_2xx_insecure]
+    static_configs:
+      - targets:
+          - https://your-internal-service.example.com:9000
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # ---------------------------------------------------------------------------
+  # ICMP Ping 가용성 (Blackbox)
+  # ---------------------------------------------------------------------------
+  - job_name: 'blackbox-icmp'
+    metrics_path: /probe
+    params:
+      module: [icmp]
+    static_configs:
+      - targets:
+          - MONITOR_TARGET_IP_1
+          - MONITOR_TARGET_IP_2
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # ---------------------------------------------------------------------------
+  # 네트워크 장비 SNMP (if_mib — 인터페이스 트래픽)
+  # ---------------------------------------------------------------------------
+  - job_name: 'snmp'
+    scrape_interval: 1m
+    scrape_timeout: 50s
+    params:
+      module: [if_mib_standard]
+      auth:   [your_community_name]
+    static_configs:
+      - targets:
+          - NETWORK_DEVICE_IP_1    # 예: FortiGate
+          - NETWORK_DEVICE_IP_2    # 예: Core Switch
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: snmp-exporter:9116
+
+  # ---------------------------------------------------------------------------
+  # FortiGate 전용 SNMP (CPU/메모리/세션)
+  # ---------------------------------------------------------------------------
+  - job_name: 'snmp-fortigate'
+    scrape_interval: 1m
+    scrape_timeout: 50s
+    params:
+      module: [fortigate_mib]
+      auth:   [your_community_name]
+    static_configs:
+      - targets:
+          - FORTIGATE_IP_1
+          - FORTIGATE_IP_2
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: snmp-exporter:9116
+
+  # ---------------------------------------------------------------------------
+  # Dell iDRAC 하드웨어 모니터링 (SNMP)
+  # ---------------------------------------------------------------------------
+  - job_name: 'idrac'
+    scrape_interval: 2m
+    scrape_timeout: 50s
+    params:
+      module: [dell_idrac]
+      auth:   [your_community_name]
+    static_configs:
+      - targets:
+          - IDRAC_IP_1
+          - IDRAC_IP_2
+          - IDRAC_IP_3
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: snmp-exporter:9116

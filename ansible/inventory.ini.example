@@ -1,0 +1,53 @@
+# =============================================================================
+# Ansible Inventory Example
+# 실제 운영 인벤토리(dns_inventory.ini)는 .gitignore에 포함됨
+# 이 파일을 참고하여 dns_inventory.ini 작성
+#
+# ⚠️  실제 비밀번호가 포함된 파일은 절대 Git에 커밋하지 마세요
+# =============================================================================
+#
+# 사용 예시:
+#   전체 서버:    ansible-playbook -i dns_inventory.ini <playbook>.yml
+#   특정 그룹:    ansible-playbook -i dns_inventory.ini <playbook>.yml --limit dmz_servers
+#   연결 테스트:  ansible all -i dns_inventory.ini -m ping
+#
+
+[all:vars]
+ansible_user=your_default_user
+ansible_ssh_pass=your_default_password
+ansible_become=yes
+ansible_become_method=sudo
+ansible_become_pass=your_default_password
+
+# =============================================================================
+# DMZ 서버 (외부 노출 서비스)
+# =============================================================================
+[dmz_servers]
+main-server        ansible_host=DMZ_SERVER_1_IP
+service-server     ansible_host=DMZ_SERVER_2_IP   ansible_user=other_user  ansible_ssh_pass=other_password
+
+# =============================================================================
+# 내부 인프라 서버
+# =============================================================================
+[internal_servers]
+vm-server-01       ansible_host=INTERNAL_SERVER_1_IP
+gitlab-srv         ansible_host=INTERNAL_SERVER_2_IP
+
+# =============================================================================
+# 팀 VM 서버
+# =============================================================================
+[team_vms]
+dev-vm-1           ansible_host=TEAM_VM_1_IP
+staging-vm-1       ansible_host=TEAM_VM_2_IP   ansible_ssh_pass=different_password
+
+# =============================================================================
+# 편의용 그룹 조합
+# =============================================================================
+[monitoring_targets:children]
+dmz_servers
+internal_servers
+team_vms
+
+[cadvisor_targets:children]
+dmz_servers
+internal_servers

@@ -1,0 +1,74 @@
+{{/* ==========================================================================
+   Clobot Alertmanager Notification Templates
+   ========================================================================== */}}
+
+{{/* 잔디 Webhook — 제목 */}}
+{{ define "jandi.title" -}}
+{{ if eq .CommonLabels.severity "critical" }}🔴 [CRITICAL]{{ else if eq .CommonLabels.severity "warning" }}⚠️ [WARNING]{{ else }}ℹ️ [INFO]{{ end }} {{ .CommonLabels.alertname }}
+{{- end }}
+
+{{/* 잔디 Webhook — 본문 */}}
+{{ define "jandi.content" -}}
+**{{ .CommonLabels.alertname }}**
+
+{{ if eq .Status "resolved" }}✅ 상태: 복구됨{{ else }}🚨 상태: 발생 중{{ end }}
+심각도: {{ .CommonLabels.severity }}
+
+{{ range .Alerts -}}
+---
+인스턴스: {{ .Labels.instance }}
+{{ if .Labels.nodename -}}서버명: {{ .Labels.nodename }}
+{{ end -}}
+{{ if .Labels.job -}}Job: {{ .Labels.job }}
+{{ end -}}
+내용: {{ .Annotations.description }}
+{{ if .Labels.category -}}분류: {{ .Labels.category }}{{ end }}
+{{ end }}
+{{- end }}
+
+{{/* Gmail HTML 이메일 템플릿 */}}
+{{ define "email.critical.html" }}
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+  .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; }
+  .header { background: #d32f2f; color: white; padding: 20px 24px; }
+  .header h2 { margin: 0; font-size: 20px; }
+  .body { padding: 20px 24px; }
+  .alert-card { border: 1px solid #e0e0e0; border-left: 4px solid #d32f2f; border-radius: 4px; padding: 16px; margin-bottom: 12px; }
+  .label { font-size: 12px; color: #757575; margin-bottom: 4px; }
+  .value { font-size: 14px; color: #212121; margin-bottom: 12px; font-weight: 500; }
+  .desc { background: #fafafa; border-radius: 4px; padding: 12px; font-size: 13px; color: #424242; }
+  .footer { padding: 12px 24px; background: #fafafa; border-top: 1px solid #e0e0e0; font-size: 12px; color: #9e9e9e; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h2>🔴 Clobot Monitoring Alert</h2>
+    <span>{{ .CommonLabels.alertname }}</span>
+  </div>
+  <div class="body">
+    <p>상태: {{ if eq .Status "resolved" }}✅ 복구됨{{ else }}🚨 발생 중{{ end }}</p>
+    {{ range .Alerts }}
+    <div class="alert-card">
+      <div class="label">인스턴스</div>
+      <div class="value">{{ .Labels.instance }}{{ if .Labels.nodename }} ({{ .Labels.nodename }}){{ end }}</div>
+      <div class="label">심각도</div>
+      <div class="value">{{ .Labels.severity }}</div>
+      {{ if .Labels.category }}
+      <div class="label">분류</div>
+      <div class="value">{{ .Labels.category }}</div>
+      {{ end }}
+      <div class="label">상세 내용</div>
+      <div class="desc">{{ .Annotations.description }}</div>
+    </div>
+    {{ end }}
+  </div>
+  <div class="footer">Clobot Monitoring System</div>
+</div>
+</body>
+</html>
+{{ end }}
