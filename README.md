@@ -235,18 +235,30 @@ Grafana → Dashboards → New → Import → ID 입력
 
 ## 🛠 관리 스크립트 (`manage.sh`)
 
+모니터링 스택의 모든 운영 작업을 단일 스크립트로 처리합니다. `set -euo pipefail` 기반으로 오류 발생 시 즉시 중단하며, 컬러 로그(INFO/WARN/ERROR)로 상태를 명확히 출력합니다.
+
+| 명령어 | 설명 | 상세 동작 |
+|---|---|---|
+| `up` | 스택 시작 | app-tier 네트워크 자동 생성, fortigate-exporter 소스 유무 감지 후 조건부 포함 |
+| `down` | 스택 중지 | docker compose down |
+| `restart` | 스택 재시작 | docker compose restart |
+| `status` | 상태 확인 | 컨테이너 목록 + Prometheus/Alertmanager health 엔드포인트 자동 점검 |
+| `logs [svc]` | 로그 확인 | 서비스명 생략 시 전체, 지정 시 해당 서비스만 tail -f |
+| `reload` | **무중단 리로드** | validate 통과 시에만 `POST /-/reload` 실행 — 서비스 중단 없이 설정 반영 |
+| `validate` | 설정 검사 | promtool(prometheus.yml + alert.rules.yml) + amtool(alertmanager.yml) 문법 검증 |
+| `alerts` | 알람 목록 | Alertmanager API에서 현재 firing 알람을 심각도/인스턴스/내용과 함께 출력 |
+| `targets` | 타겟 상태 | Prometheus API에서 전체 타겟 수, UP/DOWN 수, DOWN 타겟 상세(에러 메시지 포함) 출력 |
+| `backup` | TSDB 스냅샷 | `POST /api/v1/admin/tsdb/snapshot` — 스냅샷명 및 경로 출력 |
+| `build-fortigate` | FortiGate 빌드 | 소스 없으면 자동 git clone, 있으면 pull 후 docker compose build & up |
+| `update` | 이미지 업데이트 | docker compose pull 후 up -d, 완료 후 status 자동 출력 |
+
 ```bash
-./manage.sh up              # 스택 시작
-./manage.sh down            # 스택 중지
-./manage.sh status          # 컨테이너 상태 확인
-./manage.sh reload          # 설정 무중단 리로드 (Prometheus + Alertmanager)
-./manage.sh validate        # 설정 파일 문법 검사
-./manage.sh alerts          # 현재 발화 중인 알람 목록
-./manage.sh targets         # Prometheus scrape target 상태
-./manage.sh backup          # Prometheus TSDB 스냅샷 생성
-./manage.sh build-fortigate # FortiGate Exporter 소스 빌드
-./manage.sh update          # 이미지 업데이트 후 재시작
-./manage.sh logs [service]  # 로그 확인
+# 가장 많이 쓰는 패턴
+./manage.sh validate && ./manage.sh reload   # 설정 변경 후 안전 적용
+./manage.sh targets                          # DOWN 타겟 즉시 확인
+./manage.sh alerts                           # 현재 발화 알람 확인
+./manage.sh logs prometheus                  # 특정 서비스 로그
+./manage.sh backup                           # 데이터 백업 전 스냅샷
 ```
 
 ---
