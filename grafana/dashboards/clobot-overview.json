@@ -51,7 +51,7 @@
       },
       "targets": [
         {
-          "expr": "count(up{job=\"node-exporter\"} == 1)",
+          "expr": "count(up{job=~\"node-exporter|aws-ec2-node-exporter\"} == 1)",
           "refId": "A"
         }
       ],
@@ -70,7 +70,7 @@
     },
     {
       "id": 2,
-      "title": "🔴 오프라인 인스...턴스",
+      "title": "🔴 오프라인 인스턴스",
       "type": "stat",
       "gridPos": {
         "x": 4,
@@ -84,7 +84,7 @@
       },
       "targets": [
         {
-          "expr": "count(up{job=\"node-exporter\"} == 0) or vector(0)",
+          "expr": "count(up{job=~\"node-exporter|aws-ec2-node-exporter\"} == 0) or vector(0)",
           "refId": "A"
         }
       ],
@@ -164,7 +164,8 @@
     },
     {
       "id": 4,
-      "title": "🌐 HTTP 엔드포인트 정상",
+      "title": "🖥️ 운영 VM 가동",
+      "description": "지정된 운영 VM 중 running 상태인 수 / 전체",
       "type": "stat",
       "gridPos": {
         "x": 12,
@@ -178,26 +179,101 @@
       },
       "targets": [
         {
-          "expr": "count(probe_success{job=\"blackbox-http\"} == 1) or vector(0)",
-          "refId": "A"
+          "expr": "count(libvirt_domain_info_vstate{domain=~\"croms-p2-staging|croms-rx-UXUI|croms-rx-core-dev|croms-rx-core-stage|croms-rx-dev|high-tech-dev|k8s-rx-dev-master|finance-vm-01|sonarQube\"} == 1) or vector(0)",
+          "refId": "A",
+          "legendFormat": "running"
+        },
+        {
+          "expr": "count(libvirt_domain_info_vstate{domain=~\"croms-p2-staging|croms-rx-UXUI|croms-rx-core-dev|croms-rx-core-stage|croms-rx-dev|high-tech-dev|k8s-rx-dev-master|finance-vm-01|sonarQube\"})",
+          "refId": "B",
+          "legendFormat": "total",
+          "hide": true
         }
       ],
       "options": {
         "colorMode": "background",
-        "graphMode": "none"
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
       },
       "fieldConfig": {
         "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 7
+              },
+              {
+                "color": "green",
+                "value": 9
+              }
+            ]
+          },
           "color": {
-            "mode": "fixed",
-            "fixedColor": "green"
-          }
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "9": {
+                  "text": "9 / 9",
+                  "color": "green"
+                },
+                "8": {
+                  "text": "8 / 9",
+                  "color": "yellow"
+                },
+                "7": {
+                  "text": "7 / 9",
+                  "color": "yellow"
+                },
+                "6": {
+                  "text": "6 / 9",
+                  "color": "orange"
+                },
+                "5": {
+                  "text": "5 / 9",
+                  "color": "red"
+                },
+                "4": {
+                  "text": "4 / 9",
+                  "color": "red"
+                },
+                "3": {
+                  "text": "3 / 9",
+                  "color": "red"
+                },
+                "2": {
+                  "text": "2 / 9",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "1 / 9",
+                  "color": "red"
+                },
+                "0": {
+                  "text": "0 / 9",
+                  "color": "dark-red"
+                }
+              }
+            }
+          ]
         }
       }
     },
     {
       "id": 5,
-      "title": "🔒 SSL 최단 만료",
+      "title": "🚀 CI 파이프라인 성공률",
+      "description": "GitLab CI 전체 파이프라인 중 최신 상태가 success인 비율",
       "type": "stat",
       "gridPos": {
         "x": 16,
@@ -211,17 +287,21 @@
       },
       "targets": [
         {
-          "expr": "min(probe_ssl_earliest_cert_expiry{job=\"blackbox-http\"} - time()) / 86400",
+          "expr": "count(gitlab_ci_pipeline_status == 1) / count(gitlab_ci_pipeline_status) * 100",
           "refId": "A"
         }
       ],
       "options": {
         "colorMode": "background",
-        "graphMode": "none"
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "d",
+          "unit": "none",
+          "decimals": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -230,19 +310,40 @@
                 "value": null
               },
               {
+                "color": "orange",
+                "value": 40
+              },
+              {
                 "color": "yellow",
-                "value": 21
+                "value": 60
               },
               {
                 "color": "green",
-                "value": 60
+                "value": 80
               }
             ]
           },
           "color": {
             "mode": "thresholds"
+          },
+          "custom": {},
+          "mappings": [],
+          "noValue": "N/A"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
           }
-        }
+        ]
       }
     },
     {
@@ -375,7 +476,7 @@
       },
       "targets": [
         {
-          "expr": "up{job=\"node-exporter\"}",
+          "expr": "up{job=~\"node-exporter|aws-ec2-node-exporter\"}",
           "refId": "A",
           "instant": true,
           "format": "table"
@@ -388,11 +489,11 @@
             "renameByName": {
               "instance": "인스턴스",
               "nodename": "서버명",
+              "job": "환경",
               "Value": "상태"
             },
             "excludeByName": {
               "Time": true,
-              "job": true,
               "role": true
             }
           }

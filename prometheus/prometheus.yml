@@ -1,6 +1,6 @@
 # =============================================================================
-# Prometheus Configuration
-# 실제 운영 환경에 맞게 IP/도메인 수정 필요
+# Prometheus Configuration v2.2
+# 최종수정: 2026-03-18
 # =============================================================================
 
 global:
@@ -8,7 +8,7 @@ global:
   evaluation_interval: 15s
   scrape_timeout:      10s
   external_labels:
-    datacenter: 'your-datacenter'
+    datacenter: 'clobot-hq'
     environment: 'production'
 
 alerting:
@@ -22,99 +22,127 @@ rule_files:
 
 scrape_configs:
 
+  # ---------------------------------------------------------------------------
+  # [1] Prometheus Self-Monitoring
+  # ---------------------------------------------------------------------------
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9099']
 
   # ---------------------------------------------------------------------------
-  # 서버 OS 모니터링 (Node Exporter :9100)
+  # [2] 서버 OS 모니터링 (Node Exporter :9100)
   # ---------------------------------------------------------------------------
   - job_name: 'node-exporter'
     static_configs:
-      # DMZ 서버
-      - targets: ['DMZ_SERVER_1_IP:9100']
+      # === DMZ 서버 (172.19.100.x) ===
+      - targets: ['172.19.100.10:9100']
         labels:
-          nodename: 'server-name-1'
+          nodename: 'pdkcld1'
           role: 'infra'
 
-      - targets: ['DMZ_SERVER_2_IP:9100']
+      - targets: ['172.19.100.20:9100']
         labels:
-          nodename: 'server-name-2'
+          nodename: 'dev-server'
           role: 'dev'
 
-      # Internal 서버
-      - targets: ['INTERNAL_SERVER_1_IP:9100']
+      - targets: ['172.19.100.11:9100']
+        labels:
+          nodename: 'clobot-erp'
+          role: 'erp'
+
+      - targets: ['172.19.100.21:9100']
+        labels:
+          nodename: 'lions-agent'
+          role: 'robot'
+          server: 'vm-server-02'
+
+      # === Internal 서버 (172.18.100.x) ===
+      - targets: ['172.18.100.20:9100']
         labels:
           nodename: 'vm-server-01'
           role: 'infra'
 
-      - targets: ['INTERNAL_SERVER_2_IP:9100']
+      - targets: ['172.18.100.21:9100']
         labels:
           nodename: 'gitlab-srv'
           role: 'devops'
 
+      # === 미설치 / 추후 추가 예정 ===
+      # - targets: ['172.18.100.40:9100']   # ai-gpu-1
+      # - targets: ['172.18.100.41:9100']   # ai-gpu-2
+      # - targets: ['172.18.100.45:9100']   # lab-server
+
   # ---------------------------------------------------------------------------
-  # KVM / Libvirt 가상화 모니터링
+  # [3] KVM / Libvirt 가상화 모니터링
+  # dev-server는 개발자 VM이므로 모니터링 제외
   # ---------------------------------------------------------------------------
   - job_name: 'libvirt-exporter'
     static_configs:
-      - targets: ['HYPERVISOR_1_IP:9177']
+      - targets: ['172.18.100.20:9177']
         labels:
           host: 'vm-server-01'
-      - targets: ['HYPERVISOR_2_IP:9177']
+      - targets: ['172.19.100.10:9177']
         labels:
-          host: 'main-server'
+          host: 'pdkcld1'
+      # - targets: ['172.19.100.20:9177']   # dev-server — 개발자 VM, 모니터링 제외
 
   # ---------------------------------------------------------------------------
-  # Docker 컨테이너 모니터링 (cAdvisor :8080)
+  # [4] Docker 컨테이너 모니터링 (cAdvisor :8080)
+  # dev-server: 설치됨 / pdkcld1, vm-server-01: 설치 후 주석 해제
   # ---------------------------------------------------------------------------
   - job_name: 'cadvisor'
     static_configs:
-      - targets: ['CADVISOR_HOST_IP:8080']
+      - targets: ['172.19.100.20:8080']
         labels:
-          host: 'server-name'
+          host: 'dev-server'
+      # - targets: ['172.19.100.10:8080']   # pdkcld1 — 설치 후 주석 해제
+      # - targets: ['172.18.100.20:8080']   # vm-server-01 — 설치 후 주석 해제
 
   # ---------------------------------------------------------------------------
-  # GitLab 컴포넌트 모니터링
+  # [5] GitLab 컴포넌트 모니터링
   # ---------------------------------------------------------------------------
   - job_name: 'gitlab'
     scrape_interval: 30s
     scrape_timeout: 25s
     static_configs:
       - targets:
-          - 'GITLAB_IP:9100'   # Node Exporter
-          - 'GITLAB_IP:9121'   # Redis
-          - 'GITLAB_IP:9187'   # PostgreSQL
-          - 'GITLAB_IP:9168'   # Puma (Rails)
-          - 'GITLAB_IP:9229'   # Workhorse
-          - 'GITLAB_IP:8082'   # Sidekiq
-          - 'GITLAB_RUNNER_IP:9252'   # GitLab Runner
+          - '172.18.100.21:9100'   # Node Exporter
+          - '172.18.100.21:9121'   # Redis
+          - '172.18.100.21:9187'   # PostgreSQL
+          - '172.18.100.21:9168'   # Puma (Rails)
+          # - '172.18.100.21:9236' # Gitaly — 내부 127.0.0.1 바인딩, 외부 접근 불가
+          - '172.18.100.21:9229'   # Workhorse
+          - '172.18.100.21:8082'   # Sidekiq
+          - '172.18.100.20:9252'   # GitLab Runner (vm-server-01)
 
+  # GitLab CI Pipelines Exporter
   - job_name: 'gitlab-ci-pipelines'
     static_configs:
-      - targets: ['GITLAB_IP:8080']
+      - targets: ['172.18.100.21:8080']
         labels:
           nodename: 'gitlab-srv'
 
   # ---------------------------------------------------------------------------
-  # HAProxy 로드밸런서
+  # [6] HAProxy 로드밸런서
   # ---------------------------------------------------------------------------
   - job_name: 'haproxy'
     static_configs:
       - targets: ['haproxy-exporter:9101']
 
   # ---------------------------------------------------------------------------
-  # HTTP/HTTPS 엔드포인트 가용성 (Blackbox)
+  # [7] HTTP/HTTPS 엔드포인트 가용성 (Blackbox)
+  # DNS: CoreDNS(172.18.100.20) → HAProxy 내부IP(172.18.100.48) 해석
   # ---------------------------------------------------------------------------
-  - job_name: 'blackbox-http'
+  - job_name: 'blackbox-http.*'
     metrics_path: /probe
     params:
       module: [http_2xx]
     static_configs:
       - targets:
-          - https://your-monitoring-domain.example.com
-          - https://your-service-domain.example.com
-          - http://INTERNAL_SERVICE_IP
+          - https://monitor.clobot.co.kr       # Grafana (clobot.co.kr 인증서)
+          - http://172.19.100.11               # clobot-erp (내부 IP)
+          - https://scope-s3-console.clobotspot.com
+          - https://scope.clobotspot.com
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
@@ -123,14 +151,16 @@ scrape_configs:
       - target_label: __address__
         replacement: blackbox-exporter:9115
 
-  # 자체 서명 인증서 서비스
+  # GitLab — HAProxy가 clobot.co.kr 와일드카드 인증서로 SSL 종료하므로
+  # CoreDNS 경유 시 정상 인증서로 접근 가능 (insecure 불필요할 수 있음)
+  # 만약 여전히 자체서명 인증서를 사용한다면 insecure 모듈 유지
   - job_name: 'blackbox-http-insecure'
     metrics_path: /probe
     params:
       module: [http_2xx_insecure]
     static_configs:
       - targets:
-          - https://your-internal-service.example.com:9000
+          - https://source.clobot.co.kr:9000   # GitLab
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
@@ -140,7 +170,27 @@ scrape_configs:
         replacement: blackbox-exporter:9115
 
   # ---------------------------------------------------------------------------
-  # ICMP Ping 가용성 (Blackbox)
+  # [8] TCP 포트 가용성 (Blackbox)
+  # 구 사옥 MQTT(210.95.250.155:1883) 제거
+  # 신규 외부 MQTT IP 확인 후 아래 주석 해제
+  # ---------------------------------------------------------------------------
+  # - job_name: 'blackbox-tcp'
+  #   metrics_path: /probe
+  #   params:
+  #     module: [tcp_connect]
+  #   static_configs:
+  #     - targets:
+  #         - NEW_MQTT_IP:1883
+  #   relabel_configs:
+  #     - source_labels: [__address__]
+  #       target_label: __param_target
+  #     - source_labels: [__param_target]
+  #       target_label: instance
+  #     - target_label: __address__
+  #       replacement: blackbox-exporter:9115
+
+  # ---------------------------------------------------------------------------
+  # [9] ICMP Ping 가용성 (Blackbox)
   # ---------------------------------------------------------------------------
   - job_name: 'blackbox-icmp'
     metrics_path: /probe
@@ -148,8 +198,10 @@ scrape_configs:
       module: [icmp]
     static_configs:
       - targets:
-          - MONITOR_TARGET_IP_1
-          - MONITOR_TARGET_IP_2
+          - 172.19.100.11            # clobot-erp
+          - 172.19.100.21            # lions-agent
+          - 172.18.100.20            # vm-server-01
+          - 172.18.100.21            # gitlab-srv
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
@@ -159,18 +211,21 @@ scrape_configs:
         replacement: blackbox-exporter:9115
 
   # ---------------------------------------------------------------------------
-  # 네트워크 장비 SNMP (if_mib — 인터페이스 트래픽)
+  # [10] 네트워크 장비 SNMP (if_mib — 인터페이스 트래픽)
   # ---------------------------------------------------------------------------
   - job_name: 'snmp'
     scrape_interval: 1m
     scrape_timeout: 50s
     params:
       module: [if_mib_standard]
-      auth:   [your_community_name]
+      auth:   [clobot_v2c]
     static_configs:
       - targets:
-          - NETWORK_DEVICE_IP_1    # 예: FortiGate
-          - NETWORK_DEVICE_IP_2    # 예: Core Switch
+          - 172.18.100.1             # FortiGate DEV 인터페이스
+          - 172.19.100.1             # FortiGate DMZ 인터페이스
+          # 추가 스위치 — SNMP 설정 후 주석 해제
+          # - 172.18.100.10          # Cisco Switch #1
+          # - 172.18.100.16          # Cisco Switch #2
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
@@ -180,18 +235,18 @@ scrape_configs:
         replacement: snmp-exporter:9116
 
   # ---------------------------------------------------------------------------
-  # FortiGate 전용 SNMP (CPU/메모리/세션)
+  # [11] FortiGate 전용 SNMP (CPU/메모리/세션 수집)
   # ---------------------------------------------------------------------------
   - job_name: 'snmp-fortigate'
     scrape_interval: 1m
     scrape_timeout: 50s
     params:
       module: [fortigate_mib]
-      auth:   [your_community_name]
+      auth:   [clobot_v2c]
     static_configs:
       - targets:
-          - FORTIGATE_IP_1
-          - FORTIGATE_IP_2
+          - 172.18.100.1             # FortiGate DEV
+          - 172.19.100.1             # FortiGate DMZ
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
@@ -201,19 +256,22 @@ scrape_configs:
         replacement: snmp-exporter:9116
 
   # ---------------------------------------------------------------------------
-  # Dell iDRAC 하드웨어 모니터링 (SNMP)
+  # [12] Dell iDRAC 하드웨어 모니터링 (SNMP)
   # ---------------------------------------------------------------------------
   - job_name: 'idrac'
     scrape_interval: 2m
     scrape_timeout: 50s
     params:
       module: [dell_idrac]
-      auth:   [your_community_name]
+      auth:   [clobot_v2c]
     static_configs:
       - targets:
-          - IDRAC_IP_1
-          - IDRAC_IP_2
-          - IDRAC_IP_3
+          - 172.18.100.240           # VM 서버1 iDRAC (PowerEdge R750xs)
+          - 172.18.100.241           # iDRAC #2
+          - 172.18.100.242           # DEV02 iDRAC
+          - 172.18.100.244           # 연구소 iDRAC (Precision 7960)
+          - 172.18.100.245           # iDRAC #5
+          # - 172.18.100.243         # DEV iDRAC (확인 필요)
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
@@ -221,3 +279,47 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: snmp-exporter:9116
+
+  # ---------------------------------------------------------------------------
+  # [13] AWS CloudWatch 서비스 (RDS, ALB 등 - YACE 경유)
+  # ---------------------------------------------------------------------------
+  - job_name: 'aws-cloudwatch'
+    scrape_interval: 5m            # CloudWatch API 비용 방지를 위해 5분 권장
+    static_configs:
+      - targets: ['aws-exporter:5000']
+
+  # ---------------------------------------------------------------------------
+  # [14] AWS EC2 인스턴스 자동 발견 (Node Exporter 직접 수집)
+  # EC2 내부에 Node Exporter 9100 포트가 열려있어야 합니다
+  # ※ 현재 VPN/SG 미설정으로 수집 불가 — 네트워크 구성 완료 후 동작 확인
+  # ---------------------------------------------------------------------------
+  - job_name: 'aws-ec2-node-exporter'
+    ec2_sd_configs:
+      - region: 'ap-northeast-2'
+        port: 9100
+    relabel_configs:
+      - source_labels: [__meta_ec2_instance_state]
+        regex: running
+        action: keep
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: nodename
+      - source_labels: [__meta_ec2_public_ip]
+        target_label: __address__
+        replacement: '${1}:9100'
+
+  # ---------------------------------------------------------------------------
+  # [15] AWS EC2 버지니아 (us-east-1)
+  # ---------------------------------------------------------------------------
+  - job_name: 'aws-ec2-node-exporter-us'
+    ec2_sd_configs:
+      - region: 'us-east-1'
+        port: 9100
+    relabel_configs:
+      - source_labels: [__meta_ec2_instance_state]
+        regex: running
+        action: keep
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: nodename
+      - source_labels: [__meta_ec2_public_ip]
+        target_label: __address__
+        replacement: '${1}:9100'

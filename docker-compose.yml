@@ -1,13 +1,14 @@
-version: '3.8'
+#version: '3.8'
 
 # =============================================================================
 # Clobot Monitoring Stack v2.0
+# 최종수정: 2026-03-18
 # 구성: Prometheus + Alertmanager + Grafana + Exporters + Jandi Webhook Adapter
 # =============================================================================
 
 networks:
   app-tier:
-    name: docker_app-tier    # 기존 HAProxy가 사용 중인 실제 네트워크 이름
+    name: docker_app-tier
     external: true
   monitoring-tier:
     driver: bridge
@@ -18,27 +19,66 @@ volumes:
   grafana-data:
 
 services:
+  # -----------------------------------------------------------
+  # Gateway Service (HAProxy)
+  # -----------------------------------------------------------
+  haproxy:
+    image: haproxy:2.6.6-alpine
+    container_name: haproxy
+    restart: always
+    volumes:
+      - /storage/common/ssl/clobot.co.kr/clobot.pem:/usr/local/haproxy/SSL/clobot.pem
+      - /storage/common/ssl/clobotspot.com/scope.clobotspot.pem:/usr/local/haproxy/SSL/scope.clobotspot.pem:ro
+      - /storage/common/ssl/croms.co.kr/croms_2025.pem:/usr/local/haproxy/SSL/server.pem
+      - ./haproxy/haproxy-dev-server.cfg:/usr/local/etc/haproxy/haproxy.cfg
+    ports:
+      - "80:80"
+      - "443:443"
+      - "1883:1883"
+      - "5601:5601"
+      - "7050:7050"
+      # === Samsung ENA & Scout Demo MQTT Ports ===
+      - "21084:21084" # 구 스카우트 데모
+      - "21085:21085" # 삼성 ENA 모니터링
+      - "21086:21086" # 삼성 ENA 엔지니어링
+      - "7000:7000" # Lions-Agent
+      - "9000:9000" # Gitlab
+      - "9022:9022" # Gitlab
+    networks:
+      - app-tier
+      - monitoring-tier
+    logging:
+      driver: "gelf"
+      options:
+        gelf-address: "udp://172.18.100.20:12201"
+        tag: "haproxy"
 
+  # ---------------------------------------------------------------------------
+  # Prometheus (메트릭 수집 엔진)
+  # ---------------------------------------------------------------------------
   prometheus:
-    image: prom/prometheus:v2.51.2
+    image: prom/prometheus:v2.52.0
     container_name: prometheus
     restart: always
-    user: "65534:65534"
+    user: "65534:65534"      # nobody:nobody (보안)
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=180d'
       - '--storage.tsdb.retention.size=50GB'
       - '--web.listen-address=0.0.0.0:9099'
-      - '--web.enable-lifecycle'
+      - '--web.enable-lifecycle'             # /-/reload API 허용
       - '--web.enable-admin-api'
       - '--log.level=warn'
     ports:
-      - "127.0.0.1:9099:9099"
+      - "127.0.0.1:9099:9099"               # 로컬호스트에서만 접근 (HAProxy 경유)
     networks:
       - monitoring-tier
     healthcheck:
@@ -47,6 +87,9 @@ services:
       timeout: 10s
       retries: 3
 
+  # ---------------------------------------------------------------------------
+  # Alertmanager (알람 라우팅 & 중복제거)
+  # ---------------------------------------------------------------------------
   alertmanager:
     image: prom/alertmanager:v0.28.1
     container_name: alertmanager
@@ -59,7 +102,7 @@ services:
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
-      - '--cluster.listen-address='
+      - '--cluster.listen-address='          # 단일 노드 모드 (v0.28+)
       - '--log.level=warn'
     ports:
       - "127.0.0.1:9093:9093"
@@ -71,6 +114,9 @@ services:
       timeout: 10s
       retries: 3
 
+  # ---------------------------------------------------------------------------
+  # Grafana (시각화 대시보드)
+  # ---------------------------------------------------------------------------
   grafana:
     image: grafana/grafana:11.1.4
     container_name: grafana
@@ -80,15 +126,16 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
     ports:
-      - "127.0.0.1:38889:3000"
+      - "127.0.0.1:38889:3000"              # HAProxy 경유 외부 접근
     environment:
       - GF_SERVER_HTTP_PORT=3000
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme!}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=true
       - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel,grafana-polystat-panel
-      - GF_UNIFIED_ALERTING_ENABLED=false
+      - GF_UNIFIED_ALERTING_ENABLED=false    # Grafana 알림은 Prometheus/Alertmanager로 통합
       - TZ=Asia/Seoul
     networks:
       - monitoring-tier
@@ -100,6 +147,9 @@ services:
       timeout: 10s
       retries: 3
 
+  # ---------------------------------------------------------------------------
+  # SNMP Exporter (네트워크 장비: FortiGate, Cisco, Netgear, Aruba, Axgate)
+  # ---------------------------------------------------------------------------
   snmp-exporter:
     image: prom/snmp-exporter:v0.26.0
     container_name: snmp-exporter
@@ -114,6 +164,9 @@ services:
     networks:
       - monitoring-tier
 
+  # ---------------------------------------------------------------------------
+  # Blackbox Exporter (HTTP/TCP/ICMP 엔드포인트 가용성)
+  # ---------------------------------------------------------------------------
   blackbox-exporter:
     image: prom/blackbox-exporter:v0.25.0
     container_name: blackbox-exporter
@@ -122,22 +175,38 @@ services:
       - ./blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
     ports:
       - "127.0.0.1:9115:9115"
+    dns:
+      # ---------------------------------------------------------------
+      # [수정] 172.10.100.20 → 172.18.100.20 (CoreDNS on vm-server-01)
+      # CoreDNS가 내부 도메인을 HAProxy 내부IP(172.18.100.48)로 해석
+      # → Hairpin NAT 문제 해결, extra_hosts 불필요
+      # ---------------------------------------------------------------
+      - 172.18.100.20
+      - 8.8.8.8
     networks:
       - monitoring-tier
+      - app-tier               # 내부 대역(172.18.x/172.19.x) 접근용
     cap_add:
-      - NET_RAW
+      - NET_RAW                              # ICMP probe 용
 
+  # ---------------------------------------------------------------------------
+  # HAProxy Exporter
+  # ---------------------------------------------------------------------------
   haproxy-exporter:
     image: prom/haproxy-exporter:v0.15.0
     container_name: haproxy-exporter
     restart: always
     command:
-      - '--haproxy.scrape-uri=http://${HAPROXY_STATS_USER}:${HAPROXY_STATS_PASSWORD}@haproxy:9001/haproxy?stats;csv'
+      - '--haproxy.scrape-uri=http://clobot:${HAPROXY_STATS_PASSWORD:-ansdufdj1*}@haproxy:9001/haproxy?stats;csv'
       - '--log.level=warn'
     networks:
       - app-tier
       - monitoring-tier
 
+  # ---------------------------------------------------------------------------
+  # Jandi Webhook Adapter (잔디 알람 연동)
+  # Prometheus Alertmanager → 이 어댑터 → 잔디 Incoming Webhook
+  # ---------------------------------------------------------------------------
   jandi-adapter:
     image: timonwong/prometheus-webhook-dingtalk:v2.1.0
     container_name: jandi-adapter
@@ -151,20 +220,41 @@ services:
     networks:
       - monitoring-tier
 
-  # FortiGate Exporter — 빌드 필요:
-  # git clone https://github.com/prometheus-community/fortigate_exporter ./fortigate-exporter/src
-  # fortigate-exporter:
-  #   build:
-  #     context: ./fortigate-exporter/src
-  #   image: fortigate-exporter:local
-  #   container_name: fortigate-exporter
-  #   restart: always
-  #   volumes:
-  #     - ./fortigate-exporter/fortigate-key.yaml:/config/fortigate-key.yaml:ro
-  #   command:
-  #     - '-auth-file=/config/fortigate-key.yaml'
-  #     - '-log-level=warn'
-  #   ports:
-  #     - "127.0.0.1:9710:9710"
-  #   networks:
-  #     - monitoring-tier
+  # ---------------------------------------------------------------------------
+  # FortiGate Exporter (UTM 상태 수집 - FortiOS REST API 기반)
+  # 빌드 전 필요: git clone https://github.com/prometheus-community/fortigate_exporter ./fortigate-exporter/src
+  # ---------------------------------------------------------------------------
+  #fortigate-exporter:
+  #  build:
+  #    context: ./fortigate-exporter/src
+  #    dockerfile: Dockerfile
+  #  image: fortigate-exporter:local
+  #  container_name: fortigate-exporter
+  #  restart: always
+  #  volumes:
+  #    - ./fortigate-exporter/fortigate-key.yaml:/config/fortigate-key.yaml:ro
+  #  command:
+  #    - '-auth-file=/config/fortigate-key.yaml'
+  #    - '-log-level=warn'
+  #  ports:
+  #    - "127.0.0.1:9710:9710"
+  #  networks:
+  #    - monitoring-tier
+
+  # ---------------------------------------------------------------------------
+  # AWS CloudWatch Exporter (YACE - RDS, ALB 등)
+  # ---------------------------------------------------------------------------
+  aws-exporter:
+    image: ghcr.io/nerdswords/yet-another-cloudwatch-exporter:v0.55.0
+    container_name: aws-exporter
+    restart: always
+    ports:
+      - "127.0.0.1:5000:5000"
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+    volumes:
+      - ./aws-exporter/config.yml:/tmp/config.yml:ro
+    networks:
+      - monitoring-tier
