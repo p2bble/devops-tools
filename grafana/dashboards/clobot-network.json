@@ -1,230 +1,757 @@
 {
-  "title": "Clobot Network Devices",
-  "uid": "clobot-network",
-  "timezone": "Asia/Seoul",
-  "refresh": "1m",
-  "schemaVersion": 38,
-  "tags": ["clobot", "network", "snmp"],
-  "time": { "from": "now-1h", "to": "now" },
-  "templating": {
-    "list": [
-      {
-        "name": "target",
-        "type": "query",
-        "label": "장비 IP",
-        "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
-        "query": "label_values(ifOperStatus{job=\"snmp\"}, instance)",
-        "refresh": 2,
-        "multi": false,
-        "includeAll": false,
-        "current": {}
-      },
-      {
-        "name": "interface",
-        "type": "query",
-        "label": "인터페이스",
-        "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
-        "query": "label_values(ifOperStatus{job=\"snmp\", instance=\"$target\"}, ifName)",
-        "refresh": 2,
-        "multi": true,
-        "includeAll": true,
-        "allValue": ".*",
-        "current": {}
-      }
-    ]
-  },
   "panels": [
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "green",
+            "mode": "fixed"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
-      "title": "네트워크 장비 SNMP 수집 현황",
-      "type": "stat",
-      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
+      "options": {
+        "colorMode": "background"
+      },
       "targets": [
         {
           "expr": "count(up{job=\"snmp\"} == 1)",
           "legendFormat": "응답 중"
         }
       ],
-      "options": { "colorMode": "background" },
-      "fieldConfig": {
-        "defaults": { "color": { "mode": "fixed", "fixedColor": "green" } }
-      }
+      "title": "네트워크 장비 SNMP 수집 현황",
+      "type": "stat"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
       "id": 2,
-      "title": "SNMP 응답 없는 장비",
-      "type": "stat",
-      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
+      "options": {
+        "colorMode": "background"
+      },
       "targets": [
         {
           "expr": "count(up{job=\"snmp\"} == 0) or vector(0)",
           "legendFormat": "응답 없음"
         }
       ],
-      "options": { "colorMode": "background" },
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] },
-          "color": { "mode": "thresholds" }
-        }
-      }
+      "title": "SNMP 응답 없는 장비",
+      "type": "stat"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
       "id": 3,
-      "title": "다운된 인터페이스 수 (전체)",
-      "type": "stat",
-      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
+      "options": {
+        "colorMode": "background"
+      },
       "targets": [
         {
-          "expr": "count(ifOperStatus{job=\"snmp\"} == 2) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "2Sgx-C8Nk"
+          },
+          "expr": "count(fortigate_interface_link_up{job=~\"fortigate|fortigate-dev\",name=~\"port[0-9]+|x[0-9]+\"} == 0) or vector(0)",
           "legendFormat": "Down"
         }
       ],
-      "options": { "colorMode": "background" },
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 }] },
-          "color": { "mode": "thresholds" }
-        }
-      }
+      "title": "물리 포트 다운 수 (FortiGate)",
+      "type": "stat"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
       "id": 4,
-      "title": "FortiGate CPU 사용률",
-      "type": "stat",
-      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
+      "options": {
+        "colorMode": "background"
+      },
       "targets": [
         {
-          "expr": "fortigate_cpu_usage_ratio * 100",
+          "expr": "fgSysCpuUsage{job=\"snmp-fortigate\", instance=\"172.18.100.1\"}",
           "legendFormat": "CPU %"
         }
       ],
-      "options": { "colorMode": "background" },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 60 }, { "color": "red", "value": 80 }] },
-          "color": { "mode": "thresholds" }
-        }
-      }
+      "title": "FortiGate CPU 사용률",
+      "type": "stat"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2
+          },
+          "unit": "bps"
+        }
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
       "id": 10,
-      "title": "인터페이스 인바운드 트래픽 (선택 장비: $target)",
-      "type": "timeseries",
-      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 9 },
-      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
       "targets": [
         {
           "expr": "rate(ifHCInOctets{job=\"snmp\", instance=\"$target\", ifName=~\"$interface\"}[5m]) * 8",
           "legendFormat": "{{ifName}} ▼ IN"
         }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bps",
-          "custom": { "lineWidth": 2 }
-        }
-      }
+      "title": "인터페이스 인바운드 트래픽 (선택 장비: $target)",
+      "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2
+          },
+          "unit": "bps"
+        }
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
       "id": 11,
-      "title": "인터페이스 아웃바운드 트래픽 (선택 장비: $target)",
-      "type": "timeseries",
-      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 9 },
-      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
       "targets": [
         {
           "expr": "rate(ifHCOutOctets{job=\"snmp\", instance=\"$target\", ifName=~\"$interface\"}[5m]) * 8",
           "legendFormat": "{{ifName}} ▲ OUT"
         }
       ],
+      "title": "인터페이스 아웃바운드 트래픽 (선택 장비: $target)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "상태"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "red",
+                        "index": 0,
+                        "text": "포트 DOWN"
+                      },
+                      "1": {
+                        "color": "green",
+                        "index": 1,
+                        "text": "포트 UP"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "id": 20,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "2Sgx-C8Nk"
+          },
+          "expr": "fortigate_interface_link_up{job=~\"fortigate|fortigate-dev\",instance=\"$target\",name!~\".*[.].*\"}",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "title": "FortiGate 인터페이스 상태 (실제명칭)",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "alias": true,
+              "job": true,
+              "vdom": true
+            },
+            "indexByName": {
+              "Value": 3,
+              "instance": 2,
+              "name": 0,
+              "parent": 1
+            },
+            "renameByName": {
+              "Value": "상태",
+              "instance": "장비 IP",
+              "name": "인터페이스",
+              "parent": "상위"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "bps",
-          "custom": { "lineWidth": 2 }
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 300000
+              },
+              {
+                "color": "red",
+                "value": 500000
+              }
+            ]
+          },
+          "unit": "short"
         }
-      }
-    },
-    {
-      "id": 20,
-      "title": "인터페이스 상태 테이블 ($target)",
-      "type": "table",
-      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
-      "targets": [
-        {
-          "expr": "ifOperStatus{job=\"snmp\", instance=\"$target\"}",
-          "legendFormat": "{{ifName}}",
-          "instant": true,
-          "format": "table"
-        }
-      ],
-      "transformations": [
-        { "id": "organize", "options": {
-          "renameByName": { "ifName": "인터페이스명", "ifAlias": "설명", "Value": "상태" },
-          "excludeByName": { "Time": true, "job": true, "instance": true, "ifIndex": true }
-        }}
-      ],
-      "fieldConfig": {
-        "overrides": [{
-          "matcher": { "id": "byName", "options": "상태" },
-          "properties": [
-            { "id": "mappings", "value": [{ "type": "value", "options": { "1": { "text": "🟢 UP", "color": "green" }, "2": { "text": "🔴 DOWN", "color": "red" } } }] },
-            { "id": "custom.displayMode", "value": "color-background" }
-          ]
-        }]
-      }
-    },
-    {
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
       "id": 21,
-      "title": "FortiGate 세션 수",
-      "type": "timeseries",
-      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
       "targets": [
         {
-          "expr": "fortigate_current_sessions",
+          "expr": "fgSysSesCount{job=\"snmp-fortigate\", instance=\"172.18.100.1\"}",
           "legendFormat": "세션 수"
         }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": { "lineWidth": 2, "fillOpacity": 10 },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 300000 }, { "color": "red", "value": 500000 }]
-          }
-        }
-      }
+      "title": "FortiGate 세션 수",
+      "type": "timeseries"
     },
     {
-      "id": 30,
-      "title": "FortiGate 인터페이스 트래픽 (WAN/DMZ)",
-      "type": "timeseries",
-      "gridPos": { "x": 0, "y": 21, "w": 24, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "2Sgx-C8Nk" },
-      "targets": [
-        {
-          "expr": "rate(fortigate_interface_receive_bytes_total{name=~\"wan1|wan2|dmz\"}[5m]) * 8",
-          "legendFormat": "{{name}} ▼ IN"
-        },
-        {
-          "expr": "rate(fortigate_interface_transmit_bytes_total{name=~\"wan1|wan2|dmz\"}[5m]) * 8",
-          "legendFormat": "{{name}} ▲ OUT"
-        }
-      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "bps",
-          "custom": { "lineWidth": 2 }
+          "custom": {
+            "lineWidth": 2
+          },
+          "unit": "bps"
         }
-      }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "id": 30,
+      "targets": [
+        {
+          "expr": "rate(ifHCInOctets{job=\"snmp-fortigate\", instance=\"172.18.100.1\", ifName=\"0x706F727431\"}[5m]) * 8",
+          "legendFormat": "WAN In",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(ifHCOutOctets{job=\"snmp-fortigate\", instance=\"172.18.100.1\", ifName=\"0x706F727431\"}[5m]) * 8",
+          "legendFormat": "WAN Out",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(ifHCInOctets{job=\"snmp-fortigate\", instance=\"172.18.100.1\", ifName=\"0x706F72743135\"}[5m]) * 8",
+          "legendFormat": "DMZ In",
+          "refId": "C"
+        },
+        {
+          "expr": "rate(ifHCOutOctets{job=\"snmp-fortigate\", instance=\"172.18.100.1\", ifName=\"0x706F72743135\"}[5m]) * 8",
+          "legendFormat": "DMZ Out",
+          "refId": "D"
+        }
+      ],
+      "title": "FortiGate 인터페이스 트래픽 (WAN/DMZ)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "id": 40,
+      "title": "FortiAP / WiFi 모니터링",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 5
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 30
+      },
+      "id": 41,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "2Sgx-C8Nk"
+          },
+          "expr": "sum(fortigate_wifi_access_points{job=~\"fortigate|fortigate-dev\",status=\"active\"})",
+          "legendFormat": "Active"
+        }
+      ],
+      "title": "연결 AP 수 (Active)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 30
+      },
+      "id": 42,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "2Sgx-C8Nk"
+          },
+          "expr": "sum(fortigate_wifi_fabric_clients{job=~\"fortigate|fortigate-dev\"})",
+          "legendFormat": "Clients"
+        }
+      ],
+      "title": "WiFi 접속 클라이언트 수",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 30
+      },
+      "id": 43,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "2Sgx-C8Nk"
+          },
+          "expr": "fortigate_memory_usage_ratio{job=~\"fortigate|fortigate-dev\"} * 100",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "title": "FortiGate 메모리 사용률",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "id": 44,
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "2Sgx-C8Nk"
+          },
+          "expr": "sum by (ap_name) (fortigate_wifi_managed_ap_radio_client_count{job=~\"fortigate|fortigate-dev\"})",
+          "legendFormat": "{{ap_name}}"
+        }
+      ],
+      "title": "AP별 WiFi 클라이언트 수",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "2Sgx-C8Nk"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2
+          },
+          "unit": "binBps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "id": 45,
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "2Sgx-C8Nk"
+          },
+          "expr": "sum by (ap_name) (fortigate_wifi_managed_ap_radio_bandwidth_rx_bps{job=~\"fortigate|fortigate-dev\"})",
+          "legendFormat": "{{ap_name}} RX"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "2Sgx-C8Nk"
+          },
+          "expr": "sum by (ap_name) (fortigate_wifi_managed_ap_radio_bandwidth_tx_bps{job=~\"fortigate|fortigate-dev\"})",
+          "legendFormat": "{{ap_name}} TX"
+        }
+      ],
+      "title": "AP별 WiFi 트래픽 (RX/TX)",
+      "type": "timeseries"
     }
-  ]
+  ],
+  "refresh": "1m",
+  "tags": [
+    "clobot",
+    "network",
+    "snmp"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "172.19.100.1",
+          "value": "172.19.100.1"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "2Sgx-C8Nk"
+        },
+        "includeAll": false,
+        "label": "장비 IP",
+        "multi": false,
+        "name": "target",
+        "query": "label_values(ifOperStatus{job=~\"snmp|snmp-fortigate\"}, instance)",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "2Sgx-C8Nk"
+        },
+        "includeAll": true,
+        "label": "인터페이스",
+        "multi": true,
+        "name": "interface",
+        "query": "label_values(ifOperStatus{job=\"snmp\", instance=\"$target\"}, ifName)",
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "Asia/Seoul",
+  "title": "Clobot Network Devices",
+  "uid": "clobot-network"
 }

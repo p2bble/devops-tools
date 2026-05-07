@@ -323,3 +323,35 @@ scrape_configs:
       - source_labels: [__meta_ec2_public_ip]
         target_label: __address__
         replacement: '${1}:9100'
+
+  # ---------------------------------------------------------------------------
+  # [16] FortiGate REST API — DMZ (172.19.100.1)
+  # fortigate_exporter: prometheuscommunity/fortigate-exporter
+  # 인터페이스 실명칭, FortiAP/WiFi, 메모리, CPU per-core 수집
+  # ---------------------------------------------------------------------------
+  - job_name: 'fortigate'
+    scrape_interval: 1m
+    scrape_timeout: 50s
+    metrics_path: /probe
+    params:
+      target: ['https://172.19.100.1:38879']
+    static_configs:
+      - targets: ['fortigate-exporter:9710']
+        labels:
+          instance: '172.19.100.1'
+          location: '5F_Server'
+
+  # ---------------------------------------------------------------------------
+  # [17] FortiGate REST API — Internal (172.18.100.1)
+  # ---------------------------------------------------------------------------
+  - job_name: 'fortigate-dev'
+    scrape_interval: 1m
+    scrape_timeout: 50s
+    metrics_path: /probe
+    params:
+      target: ['https://172.18.100.1:38879']
+    static_configs:
+      - targets: ['fortigate-exporter:9710']
+        labels:
+          instance: '172.18.100.1'
+          location: 'DEV_5F_Server_18'
