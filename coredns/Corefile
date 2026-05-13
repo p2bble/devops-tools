@@ -1,0 +1,29 @@
+.:53 {
+      hosts {
+          172.18.100.48 monitor.clobot.co.kr
+          172.18.100.48 helper.clobot.co.kr
+          172.18.100.48 repo.clobot.co.kr
+          172.18.100.48 source.clobot.co.kr
+          172.18.100.48 registry.clobot.co.kr
+          172.18.100.48 incheon-airport.clobot.co.kr
+          172.18.100.48 incheon-airport-gw.clobot.co.kr
+          172.18.100.48 incheon-airport-fe.clobot.co.kr
+          172.18.100.48 incheon-airport-be.clobot.co.kr
+          172.19.100.23 sec-orbit-spot.clobot.co.kr
+          172.18.100.48 scope.clobotspot.com
+          172.18.100.48 scope-s3.clobotspot.com
+          172.18.100.48 scope-s3-console.clobotspot.com
+          172.19.100.10 lions-agent.clobot.co.kr
+          172.19.100.21 download.clobot.co.kr
+          172.19.100.10 n8n.clobot.co.kr
+          172.19.100.10 portal.clobot.co.kr
+          172.19.100.10 otp.clobot.co.kr
+          172.19.100.10 solution-portal.clobot.co.kr
+          172.19.100.10 worklog.clobot.co.kr
+          172.19.100.10 webhook.clobot.co.kr
+          fallthrough
+      }
+      forward . 8.8.8.8 1.1.1.1
+      log
+      errors
+  }
