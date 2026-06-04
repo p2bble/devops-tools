@@ -1,522 +1,434 @@
-################################################################################
-# alert_rules.yml — Clobot Monitoring Alert Rules v2.3
-# 최종수정: 2026-03-18
-# 대상: Node Exporter / Libvirt / cAdvisor / Blackbox / HAProxy / FortiGate / iDRAC
-################################################################################
-
 groups:
-
-  # ============================================================================
-  # [1] 인스턴스 가용성 (Up/Down)
-  # 미설치 타겟(cadvisor pdkcld1/vm-server-01, libvirt)은 제외
-  # AWS EC2 인스턴스는 VPN/SG 구성 완료 전까지 알람 제외
-  # ============================================================================
-  - name: Availability
+  - name: HostStatusAlerts
     rules:
       - alert: InstanceDown
-        expr: >
-          up{job!~"cadvisor|libvirt-exporter|aws-ec2-node-exporter"} == 0
-        for: 2m
-        labels:
-          severity: critical
-          category: availability
-        annotations:
-          summary: "🔴 인스턴스 다운: {{ $labels.instance }}"
-          description: "Job [{{ $labels.job }}] 의 {{ $labels.instance }} 가 2분 이상 응답하지 않습니다."
-
-      # AWS EC2 — VPN 구성 전까지 별도 알람 (severity: info → 잔디 알림 미발송)
-      - alert: AwsInstanceUnreachable
-        expr: >
-          up{job="aws-ec2-node-exporter"} == 0
-        for: 10m
-        labels:
-          severity: info
-          category: availability
-        annotations:
-          summary: >-
-            ℹ️ AWS 인스턴스 미도달:
-            {{ if $labels.nodename }}{{ $labels.nodename }}{{ else }}{{ $labels.instance }}{{ end }}
-          description: >-
-            AWS EC2
-            {{ if $labels.nodename }}{{ $labels.nodename }}{{ else }}{{ $labels.instance }}{{ end }}
-            에 10분 이상 접근 불가. VPN/SG 설정 확인 필요.
-
-      # cadvisor/libvirt는 설치된 것만 알람 (dev-server cAdvisor 등)
-      - alert: InstalledAgentDown
-        expr: >
-          up{job=~"cadvisor|libvirt-exporter", instance=~"172.19.100.20.*"} == 0
-        for: 2m
-        labels:
-          severity: warning
-          category: availability
-        annotations:
-          summary: "⚠️ 에이전트 다운: {{ $labels.instance }} ({{ $labels.job }})"
-          description: "설치된 에이전트 {{ $labels.job }} / {{ $labels.instance }} 가 응답하지 않습니다."
-
-  # ============================================================================
-  # [2] 서버 OS 리소스 (Node Exporter)
-  # ============================================================================
-  - name: NodeResources
-    rules:
-
-      - alert: HighCpuUsage
-        expr: >
-          100 - (avg by(instance, nodename) (
-            rate(node_cpu_seconds_total{mode="idle"}[5m])
-          ) * 100) > 85
-        for: 5m
-        labels:
-          severity: warning
-          category: compute
-        annotations:
-          summary: >-
-            ⚠️ CPU 과부하:
-            {{ if $labels.nodename }}{{ $labels.nodename }}{{ else }}{{ $labels.instance }}{{ end }}
-          description: "CPU 사용률 {{ $value | printf \"%.1f\" }}% (임계치: 85%, 5분 지속)"
-
-      - alert: CriticalCpuUsage
-        expr: >
-          100 - (avg by(instance, nodename) (
-            rate(node_cpu_seconds_total{mode="idle"}[5m])
-          ) * 100) > 95
-        for: 2m
-        labels:
-          severity: critical
-          category: compute
-        annotations:
-          summary: >-
-            🔴 CPU 위험 수준:
-            {{ if $labels.nodename }}{{ $labels.nodename }}{{ else }}{{ $labels.instance }}{{ end }}
-          description: "CPU 사용률 {{ $value | printf \"%.1f\" }}% (임계치: 95%, 2분 지속)"
-
-      - alert: HighMemoryUsage
-        expr: >
-          (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)
-          / node_memory_MemTotal_bytes * 100 > 85
-        for: 5m
-        labels:
-          severity: warning
-          category: compute
-        annotations:
-          summary: >-
-            ⚠️ 메모리 과부하:
-            {{ if $labels.nodename }}{{ $labels.nodename }}{{ else }}{{ $labels.instance }}{{ end }}
-          description: "메모리 사용률 {{ $value | printf \"%.1f\" }}% (임계치: 85%, 5분 지속)"
-
-      - alert: CriticalMemoryUsage
-        expr: >
-          (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)
-          / node_memory_MemTotal_bytes * 100 > 95
-        for: 2m
-        labels:
-          severity: critical
-          category: compute
-        annotations:
-          summary: >-
-            🔴 메모리 위험:
-            {{ if $labels.nodename }}{{ $labels.nodename }}{{ else }}{{ $labels.instance }}{{ end }}
-          description: "메모리 사용률 {{ $value | printf \"%.1f\" }}% (임계치: 95%, 2분 지속)"
-
-      - alert: LowDiskSpace
-        expr: >
-          node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|devtmpfs",mountpoint!~"/boot.*"}
-          / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|devtmpfs",mountpoint!~"/boot.*"}
-          * 100 < 15
-        for: 5m
-        labels:
-          severity: warning
-          category: storage
-        annotations:
-          summary: >-
-            ⚠️ 디스크 공간 부족:
-            {{ if $labels.nodename }}{{ $labels.nodename }}{{ else }}{{ $labels.instance }}{{ end }}
-            ({{ $labels.mountpoint }})
-          description: "가용 공간 {{ $value | printf \"%.1f\" }}% (임계치: 15%)"
-
-      - alert: CriticalDiskSpace
-        expr: >
-          node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|devtmpfs",mountpoint!~"/boot.*"}
-          / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|devtmpfs",mountpoint!~"/boot.*"}
-          * 100 < 5
-        for: 2m
-        labels:
-          severity: critical
-          category: storage
-        annotations:
-          summary: >-
-            🔴 디스크 거의 가득참:
-            {{ if $labels.nodename }}{{ $labels.nodename }}{{ else }}{{ $labels.instance }}{{ end }}
-            ({{ $labels.mountpoint }})
-          description: "가용 공간 {{ $value | printf \"%.1f\" }}% (임계치: 5%)"
-
-      - alert: HighDiskIOWait
-        expr: >
-          rate(node_cpu_seconds_total{mode="iowait"}[5m]) * 100 > 20
-        for: 5m
-        labels:
-          severity: warning
-          category: storage
-        annotations:
-          summary: >-
-            ⚠️ 디스크 I/O 대기 높음:
-            {{ if $labels.nodename }}{{ $labels.nodename }}{{ else }}{{ $labels.instance }}{{ end }}
-          description: "I/O Wait {{ $value | printf \"%.1f\" }}% (임계치: 20%, 5분 지속)"
-
-      - alert: HighNetworkIn
-        expr: >
-          rate(node_network_receive_bytes_total{device!~"lo|veth.*|docker.*|br-.*"}[5m]) * 8 / 1e6 > 800
-        for: 10m
-        labels:
-          severity: warning
-          category: network
-        annotations:
-          summary: >-
-            ⚠️ 인바운드 트래픽 폭증:
-            {{ if $labels.nodename }}{{ $labels.nodename }}{{ else }}{{ $labels.instance }}{{ end }}
-            ({{ $labels.device }})
-          description: "수신 트래픽 {{ $value | printf \"%.0f\" }} Mbps (임계치: 800 Mbps, 10분 지속)"
-
-      - alert: HighNetworkOut
-        expr: >
-          rate(node_network_transmit_bytes_total{device!~"lo|veth.*|docker.*|br-.*"}[5m]) * 8 / 1e6 > 800
-        for: 10m
-        labels:
-          severity: warning
-          category: network
-        annotations:
-          summary: >-
-            ⚠️ 아웃바운드 트래픽 폭증:
-            {{ if $labels.nodename }}{{ $labels.nodename }}{{ else }}{{ $labels.instance }}{{ end }}
-            ({{ $labels.device }})
-          description: "송신 트래픽 {{ $value | printf \"%.0f\" }} Mbps (임계치: 800 Mbps, 10분 지속)"
-
-      - alert: HighSystemLoad
-        expr: >
-          node_load15 / count without(cpu, mode)(
-            node_cpu_seconds_total{mode="idle"}
-          ) > 2.0
-        for: 10m
-        labels:
-          severity: warning
-          category: compute
-        annotations:
-          summary: >-
-            ⚠️ 시스템 로드 높음:
-            {{ if $labels.nodename }}{{ $labels.nodename }}{{ else }}{{ $labels.instance }}{{ end }}
-          description: "15분 로드 평균이 CPU 코어 수의 2배 초과 (현재: {{ $value | printf \"%.2f\" }})"
-
-      - alert: NodeReboot
-        expr: node_time_seconds - node_boot_time_seconds < 600
-        for: 0m
-        labels:
-          severity: info
-          category: availability
-        annotations:
-          summary: >-
-            ℹ️ 서버 재부팅 감지:
-            {{ if $labels.nodename }}{{ $labels.nodename }}{{ else }}{{ $labels.instance }}{{ end }}
-          description: "서버가 10분 이내에 재부팅되었습니다."
-
-  # ============================================================================
-  # [3] KVM VM 리소스 (Libvirt Exporter)
-  # vstate: 1=running, 2=blocked, 3=paused, 4=shutdown, 5=shutoff, 6=crashed
-  # 꺼진 VM(vstate=5)은 정상 운영 상태이므로 알람 제외
-  #
-  # CPU 임계치 변경 이력:
-  #   v2.2: 90% / 10분 → 잦은 오탐 (다중 vCPU VM에서 합산 CPU가 수백% 가능)
-  #   v2.3: vCPU 수 기준 정규화. 예: 4 vCPU VM → 400% 가능, 임계치 = vCPU당 85%
-  # ============================================================================
-  - name: LibvirtVMs
-    rules:
-
-      - alert: VMHighCpuUsage
-        # running 상태(vstate=1) VM만, vCPU 수 대비 정규화된 CPU 사용률
-        # 예: 4 vCPU VM이 340% 사용 → 정규화 85% → 알람 발생
-        expr: >
-          (
-            rate(libvirt_domain_info_cpu_time_seconds_total[5m]) * 100
-            / libvirt_domain_info_virtual_cpus
-          ) > 85
-          and on(domain) libvirt_domain_info_vstate == 1
-        for: 15m
-        labels:
-          severity: warning
-          category: compute
-        annotations:
-          summary: "⚠️ VM CPU 높음: {{ $labels.domain }}"
-          description: >-
-            VM [{{ $labels.domain }}] vCPU당 CPU {{ $value | printf "%.1f" }}%
-            (임계치: vCPU당 85%, 15분 지속)
-
-      - alert: VMCriticalCpuUsage
-        # vCPU당 95% 초과 — 5분 지속 시 critical
-        expr: >
-          (
-            rate(libvirt_domain_info_cpu_time_seconds_total[5m]) * 100
-            / libvirt_domain_info_virtual_cpus
-          ) > 95
-          and on(domain) libvirt_domain_info_vstate == 1
-        for: 5m
-        labels:
-          severity: critical
-          category: compute
-        annotations:
-          summary: "🔴 VM CPU 위험: {{ $labels.domain }}"
-          description: >-
-            VM [{{ $labels.domain }}] vCPU당 CPU {{ $value | printf "%.1f" }}%
-            (임계치: vCPU당 95%, 5분 지속)
-
-      - alert: VMCrashed
-        # crashed 상태(vstate=6)만 알람 — shutdown(5)은 정상
-        expr: libvirt_domain_info_vstate == 6
+        expr: up == 0
         for: 1m
         labels:
           severity: critical
-          category: availability
         annotations:
-          summary: "🔴 VM 크래시: {{ $labels.domain }}"
-          description: "VM [{{ $labels.domain }}] 가 crashed 상태입니다. 즉시 확인 필요!"
+          summary: "인스턴스 다운: {{ $labels.instance }}"
+          description: "{{ $labels.job }} 잡의 {{ $labels.instance }} 인스턴스가 1분 이상 다운되었습니다."
 
-      - alert: VMUnexpectedShutdown
-        # 예상치 못한 종료: paused(3) 상태가 지속
-        expr: libvirt_domain_info_vstate == 3
+      - alert: HighCpuUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100) > 80
         for: 5m
         labels:
           severity: warning
-          category: availability
         annotations:
-          summary: "⚠️ VM 일시정지 상태: {{ $labels.domain }}"
-          description: "VM [{{ $labels.domain }}] 가 5분 이상 paused 상태입니다."
+          summary: "높은 CPU 사용량: {{ $labels.instance }}"
+          description: "{{ $labels.instance }}의 CPU 사용량이 5분 동안 80%를 초과했습니다. (현재 값: {{ $value | printf `%.2f` }}%)"
 
-  # ============================================================================
-  # [4] 서비스 엔드포인트 가용성 (Blackbox Exporter)
-  # ============================================================================
-  - name: Endpoints
-    rules:
-
-      - alert: HttpEndpointDown
-        expr: probe_success{job=~"blackbox-http.*"} == 0
-        for: 2m
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
         labels:
-          severity: critical
-          category: availability
+          severity: warning
         annotations:
-          summary: "🔴 HTTP 서비스 다운: {{ $labels.instance }}"
-          description: "{{ $labels.instance }} 가 2분 이상 HTTP 응답에 실패했습니다."
+          summary: "높은 메모리 사용량: {{ $labels.instance }}"
+          description: "{{ $labels.instance }}의 메모리 사용량이 5분 동안 85%를 초과했습니다. (현재 값: {{ $value | printf `%.2f` }}%)"
 
-      - alert: HttpSlowResponse
-        # 임계치 변경: 3초/5분 → 5초/10분 (외부 도메인 경유 시 네트워크 지연 반영)
-        expr: probe_duration_seconds{job=~"blackbox-http.*"} > 5
+      - alert: HighSwapUsage
+        expr: (1 - node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes) * 100 > 50
         for: 10m
         labels:
           severity: warning
-          category: performance
         annotations:
-          summary: "⚠️ HTTP 응답 지연: {{ $labels.instance }}"
-          description: "응답 시간 {{ $value | printf \"%.2f\" }}초 (임계치: 5초, 10분 지속)"
+          summary: "높은 Swap 사용량: {{ $labels.instance }}"
+          description: "{{ $labels.instance }}의 Swap 사용량이 10분 동안 50%를 초과했습니다. (현재 값: {{ $value | printf `%.1f` }}%) 메모리 부족 여부 확인 필요."
 
+      - alert: LowDiskSpace
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "디스크 공간 부족: {{ $labels.instance }}"
+          description: "{{ $labels.instance }}의 루트(/) 파티션 디스크 남은 공간이 10% 미만입니다. (현재 값: {{ $value | printf `%.2f` }}%)"
+
+      - alert: HighSystemLoad
+        expr: node_load1 / count by(instance) (node_cpu_seconds_total{mode="idle"}) > 2.0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "높은 시스템 로드: {{ $labels.instance }}"
+          description: "{{ $labels.instance }}의 1분 로드 평균이 CPU 코어당 2.0을 초과했습니다. (현재 값: {{ $value | printf `%.2f` }})"
+
+  - name: DiskSpaceAlerts
+    rules:
+      - alert: GitlabBackupDiskHigh
+        expr: |
+          (node_filesystem_size_bytes{instance="172.19.100.21:9100", mountpoint="/data/docker/gitlab/backups"}
+          - node_filesystem_avail_bytes{instance="172.19.100.21:9100", mountpoint="/data/docker/gitlab/backups"})
+          / node_filesystem_size_bytes{instance="172.19.100.21:9100", mountpoint="/data/docker/gitlab/backups"} * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GitLab 백업 디스크 사용량 높음"
+          description: "gitlab-srv 백업 디스크(/data/docker/gitlab/backups)가 80%를 초과했습니다. (현재: {{ $value | printf `%.1f` }}%)"
+
+      - alert: GitlabBackupDiskCritical
+        expr: |
+          (node_filesystem_size_bytes{instance="172.19.100.21:9100", mountpoint="/data/docker/gitlab/backups"}
+          - node_filesystem_avail_bytes{instance="172.19.100.21:9100", mountpoint="/data/docker/gitlab/backups"})
+          / node_filesystem_size_bytes{instance="172.19.100.21:9100", mountpoint="/data/docker/gitlab/backups"} * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GitLab 백업 디스크 위험 수위"
+          description: "gitlab-srv 백업 디스크(/data/docker/gitlab/backups)가 90%를 초과했습니다. 즉시 정리 필요. (현재: {{ $value | printf `%.1f` }}%)"
+
+      - alert: NasStorageLow
+        expr: node_filesystem_avail_bytes{mountpoint="/storage"} / node_filesystem_size_bytes{mountpoint="/storage"} * 100 < 15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NAS 스토리지 여유 공간 부족: {{ $labels.instance }}"
+          description: "NAS(/storage) 여유 공간이 15% 미만입니다. (현재: {{ $value | printf `%.1f` }}%) 불필요한 데이터 정리 필요."
+
+      - alert: NasStorageCritical
+        expr: node_filesystem_avail_bytes{mountpoint="/storage"} / node_filesystem_size_bytes{mountpoint="/storage"} * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "NAS 스토리지 위험 수위: {{ $labels.instance }}"
+          description: "NAS(/storage) 여유 공간이 10% 미만입니다. (현재: {{ $value | printf `%.1f` }}%) 즉시 조치 필요."
+
+  - name: BackupAlerts
+    rules:
+      - alert: GitlabRsyncFailed
+        expr: gitlab_rsync_success == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GitLab 1차 rsync 실패"
+          description: "gitlab-srv NAS→로컬 rsync가 실패했습니다. /var/log/gitlab-rsync.log 확인 필요."
+
+      - alert: GitlabSecondaryRsyncFailed
+        expr: gitlab_secondary_rsync_success == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GitLab 2차 rsync 실패"
+          description: "gitlab-srv 로컬→NAS 2차 rsync가 실패했습니다. /var/log/gitlab-secondary-rsync.log 확인 필요."
+
+      - alert: GitlabRsyncStale
+        expr: time() - gitlab_rsync_last_timestamp > 90000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GitLab rsync 25시간 이상 미실행"
+          description: "마지막 1차 rsync 이후 25시간 이상 경과했습니다. crontab 또는 NAS 연결 확인 필요."
+
+      - alert: GitlabSecondaryRsyncStale
+        expr: time() - gitlab_secondary_rsync_last_timestamp > 90000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GitLab 2차 rsync 25시간 이상 미실행"
+          description: "마지막 2차 rsync 이후 25시간 이상 경과했습니다."
+
+  - name: SslCertAlerts
+    rules:
       - alert: SslCertExpiringSoon
-        expr: probe_ssl_earliest_cert_expiry{job=~"blackbox-http.*"} - time() < 86400 * 21
+        expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 7
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "SSL 인증서 7일 이내 만료: {{ $labels.instance }}"
+          description: "{{ $labels.instance }} 인증서가 {{ $value | humanizeDuration }} 후 만료됩니다."
+
+      - alert: SslCertExpiryWarning
+        expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 30
         for: 1h
         labels:
           severity: warning
-          category: security
         annotations:
-          summary: "⚠️ SSL 인증서 만료 임박: {{ $labels.instance }}"
-          description: "SSL 인증서가 {{ $value | humanizeDuration }} 내에 만료됩니다. (21일 이내)"
+          summary: "SSL 인증서 30일 이내 만료: {{ $labels.instance }}"
+          description: "{{ $labels.instance }} 인증서가 {{ $value | humanizeDuration }} 후 만료됩니다."
 
-      - alert: SslCertExpired
-        expr: probe_ssl_earliest_cert_expiry{job=~"blackbox-http.*"} - time() < 0
-        for: 0m
+  - name: ServiceBackupAlerts
+    rules:
+      - alert: SonarqubeBackupFailed
+        expr: sonarqube_backup_success == 0
+        for: 5m
         labels:
           severity: critical
-          category: security
         annotations:
-          summary: "🔴 SSL 인증서 만료됨: {{ $labels.instance }}"
-          description: "SSL 인증서가 이미 만료되었습니다. 즉시 갱신 필요!"
+          summary: "SonarQube DB 백업 실패"
+          description: "vm-server-01 SonarQube PostgreSQL 백업이 실패했습니다. /var/log/sonarqube-backup.log 확인 필요."
 
-      - alert: TcpEndpointDown
-        expr: probe_success{job="blackbox-tcp"} == 0
+      - alert: SonarqubeBackupStale
+        expr: time() - sonarqube_backup_last_timestamp > 90000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SonarQube 백업 25시간 이상 미실행"
+          description: "마지막 SonarQube 백업 이후 25시간 이상 경과했습니다."
+
+      - alert: N8nBackupFailed
+        expr: n8n_backup_success == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "n8n 백업 실패"
+          description: "vm-server-01 n8n 데이터 백업이 실패했습니다. /var/log/n8n-backup.log 확인 필요."
+
+      - alert: N8nBackupStale
+        expr: time() - n8n_backup_last_timestamp > 90000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "n8n 백업 25시간 이상 미실행"
+          description: "마지막 n8n 백업 이후 25시간 이상 경과했습니다."
+
+      - alert: GraylogBackupFailed
+        expr: graylog_backup_success == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Graylog 백업 실패"
+          description: "vm-server-01 Graylog(MongoDB+OpenSearch) 백업이 실패했습니다. /var/log/graylog-backup.log 확인 필요."
+
+      - alert: GraylogBackupStale
+        expr: time() - graylog_backup_last_timestamp > 691200
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Graylog 백업 8일 이상 미실행"
+          description: "마지막 Graylog 백업 이후 8일 이상 경과했습니다. (주간 백업 스케줄 기준) crontab 확인 필요."
+
+      - alert: VmBackupFailed
+        expr: vm_backup_success == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "VM 백업 실패 ({{ $labels.vm }})"
+          description: "{{ $labels.vm }} VM 백업이 실패했습니다. /var/log/vm-backup.log 확인 필요."
+
+      - alert: VmBackupStale
+        expr: time() - vm_backup_last_timestamp > 691200
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "VM 백업 8일 이상 미실행 ({{ $labels.vm }})"
+          description: "{{ $labels.vm }} 마지막 VM 백업 이후 8일 이상 경과했습니다. (주간 백업 스케줄 기준)"
+
+      - alert: ServerFileBackupFailed
+        expr: server_file_backup_success == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "서버 파일 백업 실패 ({{ $labels.server }})"
+          description: "{{ $labels.server }} 서버 파일(/etc, /usr/local/bin, /data/docker) 백업이 실패했습니다. /var/log/server-file-backup.log 확인 필요."
+
+      - alert: ServerFileBackupStale
+        expr: time() - server_file_backup_last_timestamp > 90000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "서버 파일 백업 25시간 이상 미실행 ({{ $labels.server }})"
+          description: "{{ $labels.server }} 마지막 파일 백업 이후 25시간 이상 경과했습니다."
+
+  - name: HostPingAlerts
+    rules:
+      - alert: HostUnreachable
+        expr: probe_success{job="blackbox-icmp", group=~"infra|devops|dmz"} == 0
         for: 2m
         labels:
           severity: critical
-          category: availability
         annotations:
-          summary: "🔴 TCP 서비스 다운: {{ $labels.instance }}"
-          description: "{{ $labels.instance }} TCP 연결이 2분 이상 실패했습니다."
+          summary: "PING No Response: {{ $labels.nodename }}"
+          description: "{{ $labels.nodename }}({{ $labels.instance }}) no ICMP reply 2m [group: {{ $labels.group }}]"
 
-      - alert: IcmpHostDown
-        expr: probe_success{job="blackbox-icmp"} == 0
+  # ---------------------------------------------------------------------------
+  # [중요 서버 전용] CriticalServerAlerts
+  # 대상: vm-server-01, vm-server-02, gitlab-srv, clobot-erp, monitor-01
+  # ---------------------------------------------------------------------------
+  - name: CriticalServerAlerts
+    rules:
+      - alert: CriticalServerCpuHigh
+        expr: >
+          (100 - (avg by(instance,nodename) (rate(node_cpu_seconds_total{mode="idle",
+            nodename=~"vm-server-01|vm-server-02|gitlab-srv|clobot-erp|monitor-01"}[2m])) * 100)) > 75
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU 부하 경고: {{ $labels.nodename }}"
+          description: "{{ $labels.nodename }}의 CPU 사용량이 5분간 75%를 초과했습니다. (현재: {{ $value | printf `%.1f` }}%)"
+
+      - alert: CriticalServerCpuCritical
+        expr: >
+          (100 - (avg by(instance,nodename) (rate(node_cpu_seconds_total{mode="idle",
+            nodename=~"vm-server-01|vm-server-02|gitlab-srv|clobot-erp|monitor-01"}[2m])) * 100)) > 90
         for: 3m
         labels:
-          severity: warning
-          category: availability
-        annotations:
-          summary: "⚠️ 호스트 핑 응답 없음: {{ $labels.instance }}"
-          description: "{{ $labels.instance }} 에 3분 이상 ICMP 응답이 없습니다."
-
-  # ============================================================================
-  # [5] HAProxy 로드밸런서
-  # ============================================================================
-  - name: HAProxy
-    rules:
-
-      - alert: HaproxyBackendDown
-        expr: haproxy_backend_up == 0
-        for: 1m
-        labels:
           severity: critical
-          category: availability
         annotations:
-          summary: "🔴 HAProxy 백엔드 다운: {{ $labels.backend }}"
-          description: "HAProxy 백엔드 [{{ $labels.backend }}] 의 모든 서버가 다운되었습니다."
+          summary: "CPU 부하 위험: {{ $labels.nodename }}"
+          description: "{{ $labels.nodename }}의 CPU 사용량이 3분간 90%를 초과했습니다. (현재: {{ $value | printf `%.1f` }}%)"
 
-      - alert: HaproxyServerDown
-        expr: haproxy_server_up == 0
-        for: 1m
-        labels:
-          severity: warning
-          category: availability
-        annotations:
-          summary: "⚠️ HAProxy 서버 다운: {{ $labels.backend }}/{{ $labels.server }}"
-          description: "HAProxy 백엔드 [{{ $labels.backend }}] 의 서버 {{ $labels.server }} 가 다운되었습니다."
-
-      - alert: HaproxyHighQueueTime
-        expr: haproxy_server_queue_time_average_seconds > 0.5
+      - alert: CriticalServerMemoryHigh
+        expr: >
+          (node_memory_MemTotal_bytes{nodename=~"vm-server-01|vm-server-02|gitlab-srv|clobot-erp|monitor-01"}
+           - node_memory_MemAvailable_bytes{nodename=~"vm-server-01|vm-server-02|gitlab-srv|clobot-erp|monitor-01"})
+          / node_memory_MemTotal_bytes{nodename=~"vm-server-01|vm-server-02|gitlab-srv|clobot-erp|monitor-01"}
+          * 100 > 80
         for: 5m
         labels:
           severity: warning
-          category: performance
         annotations:
-          summary: "⚠️ HAProxy 큐 대기시간 높음: {{ $labels.backend }}"
-          description: "평균 큐 대기시간 {{ $value | printf \"%.3f\" }}초 (임계치: 0.5초)"
+          summary: "메모리 부하 경고: {{ $labels.nodename }}"
+          description: "{{ $labels.nodename }}의 메모리 사용량이 5분간 80%를 초과했습니다. (현재: {{ $value | printf `%.1f` }}%)"
 
-      - alert: HaproxyHighResponseTime
-        expr: haproxy_server_response_time_average_seconds > 2
-        for: 5m
-        labels:
-          severity: warning
-          category: performance
-        annotations:
-          summary: "⚠️ HAProxy 응답시간 높음: {{ $labels.backend }}/{{ $labels.server }}"
-          description: "평균 응답시간 {{ $value | printf \"%.2f\" }}초 (임계치: 2초)"
-
-  # ============================================================================
-  # [6] FortiGate UTM (SNMP fortigate_mib)
-  # ============================================================================
-  - name: FortiGate
-    rules:
-
-      - alert: FortiGateCpuHigh
-        expr: fgSysCpuUsage > 80
-        for: 5m
-        labels:
-          severity: warning
-          category: network
-        annotations:
-          summary: "⚠️ FortiGate CPU 높음: {{ $labels.instance }}"
-          description: "FortiGate CPU {{ $value }}% (임계치: 80%, 5분 지속)"
-
-      - alert: FortiGateMemoryHigh
-        expr: fgSysMemUsage > 85
-        for: 5m
-        labels:
-          severity: warning
-          category: network
-        annotations:
-          summary: "⚠️ FortiGate 메모리 높음: {{ $labels.instance }}"
-          description: "FortiGate 메모리 {{ $value }}% (임계치: 85%)"
-
-      - alert: FortiGateSessionCountHigh
-        expr: fgSysSesCount > 500000
-        for: 5m
-        labels:
-          severity: warning
-          category: network
-        annotations:
-          summary: "⚠️ FortiGate 세션 수 높음: {{ $labels.instance }}"
-          description: "현재 세션 수: {{ $value | humanize }} (임계치: 500,000)"
-
-  # ============================================================================
-  # [7] Dell iDRAC 하드웨어 상태 (SNMP)
-  # ============================================================================
-  - name: iDRAC
-    rules:
-
-      - alert: DellSystemStatusWarning
-        expr: dellSystemStatus == 4
-        for: 1m
-        labels:
-          severity: warning
-          category: hardware
-        annotations:
-          summary: "⚠️ Dell 서버 하드웨어 경고: {{ $labels.instance }}"
-          description: "Dell iDRAC 시스템 상태: WARNING (값=4). 팬/온도/전원 확인 필요."
-
-      - alert: DellSystemStatusCritical
-        expr: dellSystemStatus == 5
-        for: 1m
-        labels:
-          severity: critical
-          category: hardware
-        annotations:
-          summary: "🔴 Dell 서버 하드웨어 장애: {{ $labels.instance }}"
-          description: "Dell iDRAC 시스템 상태: CRITICAL (값=5). 즉시 현장 확인 필요!"
-
-      - alert: DellTemperatureHigh
-        expr: dellTemperatureReading * 0.1 > 70
+      - alert: CriticalServerMemoryCritical
+        expr: >
+          (node_memory_MemTotal_bytes{nodename=~"vm-server-01|vm-server-02|gitlab-srv|clobot-erp|monitor-01"}
+           - node_memory_MemAvailable_bytes{nodename=~"vm-server-01|vm-server-02|gitlab-srv|clobot-erp|monitor-01"})
+          / node_memory_MemTotal_bytes{nodename=~"vm-server-01|vm-server-02|gitlab-srv|clobot-erp|monitor-01"}
+          * 100 > 90
         for: 3m
         labels:
-          severity: warning
-          category: hardware
+          severity: critical
         annotations:
-          summary: "⚠️ Dell 서버 온도 높음: {{ $labels.instance }}"
-          description: "{{ $labels.temp_name }}: {{ $value | printf \"%.1f\" }}°C (임계치: 70°C)"
+          summary: "메모리 부하 위험: {{ $labels.nodename }}"
+          description: "{{ $labels.nodename }}의 메모리 사용량이 3분간 90%를 초과했습니다. (현재: {{ $value | printf `%.1f` }}%)"
 
-  # ============================================================================
-  # [8] 컨테이너 (cAdvisor) — memory limit 설정된 컨테이너만
-  # ============================================================================
-  - name: Containers
-    rules:
-
-      - alert: ContainerHighCpuUsage
+      - alert: CriticalServerDiskWarning
         expr: >
-          rate(container_cpu_usage_seconds_total{
-            image!="",
-            container!~"POD|pause"
-          }[5m]) * 100 > 90
+          node_filesystem_avail_bytes{mountpoint="/",
+            nodename=~"vm-server-01|vm-server-02|gitlab-srv|clobot-erp|monitor-01"}
+          / node_filesystem_size_bytes{mountpoint="/",
+            nodename=~"vm-server-01|vm-server-02|gitlab-srv|clobot-erp|monitor-01"}
+          * 100 < 20
         for: 5m
         labels:
           severity: warning
-          category: compute
         annotations:
-          summary: "⚠️ 컨테이너 CPU 높음: {{ $labels.name }}"
-          description: "컨테이너 [{{ $labels.name }}] CPU {{ $value | printf \"%.1f\" }}% (임계치: 90%, 5분 지속)"
+          summary: "디스크 여유 경고: {{ $labels.nodename }}"
+          description: "{{ $labels.nodename }}의 루트 디스크 여유공간이 20% 미만입니다. (현재 여유: {{ $value | printf `%.1f` }}%)"
 
-      - alert: ContainerHighMemoryUsage
+      - alert: CriticalServerDiskCritical
         expr: >
-          (container_memory_working_set_bytes{image!="", container!~"POD|pause"}
-          / container_spec_memory_limit_bytes{image!="", container!~"POD|pause"} * 100 > 90)
-          and
-          container_spec_memory_limit_bytes{image!="", container!~"POD|pause"} > 0
-        for: 5m
-        labels:
-          severity: warning
-          category: compute
-        annotations:
-          summary: "⚠️ 컨테이너 메모리 높음: {{ $labels.name }}"
-          description: "컨테이너 [{{ $labels.name }}] 메모리 {{ $value | printf \"%.1f\" }}% (limit 대비)"
-
-      - alert: ContainerOOMKilled
-        expr: >
-          increase(container_oom_events_total{
-            image!="",
-            container!~"POD|pause"
-          }[5m]) > 0
-        for: 0m
+          node_filesystem_avail_bytes{mountpoint="/",
+            nodename=~"vm-server-01|vm-server-02|gitlab-srv|clobot-erp|monitor-01"}
+          / node_filesystem_size_bytes{mountpoint="/",
+            nodename=~"vm-server-01|vm-server-02|gitlab-srv|clobot-erp|monitor-01"}
+          * 100 < 10
+        for: 2m
         labels:
           severity: critical
-          category: compute
         annotations:
-          summary: "🔴 컨테이너 OOM Kill 발생: {{ $labels.name }}"
-          description: "컨테이너 [{{ $labels.name }}] 가 메모리 부족으로 종료되었습니다."
+          summary: "디스크 여유 위험: {{ $labels.nodename }}"
+          description: "{{ $labels.nodename }}의 루트 디스크 여유공간이 10% 미만입니다. (현재 여유: {{ $value | printf `%.1f` }}%)"
+
+  # ---------------------------------------------------------------------------
+  # [NAS 전용] NasNodeAlerts (Synology 172.18.100.10)
+  # ---------------------------------------------------------------------------
+  - name: NasNodeAlerts
+    rules:
+      - alert: NasCpuHigh
+        expr: >
+          (100 - (avg by(instance,nodename) (rate(node_cpu_seconds_total{mode="idle",
+            nodename="NAS"}[2m])) * 100)) > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NAS CPU 부하 경고"
+          description: "NAS CPU 사용량이 5분간 90%를 초과했습니다. (현재: {{ $value | printf `%.1f` }}%)"
+
+      - alert: NasMemoryHigh
+        expr: >
+          (node_memory_MemTotal_bytes{nodename="NAS"}
+           - node_memory_MemAvailable_bytes{nodename="NAS"})
+          / node_memory_MemTotal_bytes{nodename="NAS"}
+          * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NAS 메모리 부하 경고"
+          description: "NAS 메모리 사용량이 5분간 85%를 초과했습니다. (현재: {{ $value | printf `%.1f` }}%)"
+
+      - alert: NasVolumeDiskWarning
+        expr: >
+          node_filesystem_avail_bytes{nodename="NAS", mountpoint="/volume1"}
+          / node_filesystem_size_bytes{nodename="NAS", mountpoint="/volume1"}
+          * 100 < 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "NAS 스토리지 여유 경고 (/volume1)"
+          description: "NAS /volume1 여유공간이 20% 미만입니다. (현재 여유: {{ $value | printf `%.1f` }}%)"
+
+      - alert: NasVolumeDiskCritical
+        expr: >
+          node_filesystem_avail_bytes{nodename="NAS", mountpoint="/volume1"}
+          / node_filesystem_size_bytes{nodename="NAS", mountpoint="/volume1"}
+          * 100 < 10
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "NAS 스토리지 여유 위험 (/volume1)"
+          description: "NAS /volume1 여유공간이 10% 미만입니다. (현재 여유: {{ $value | printf `%.1f` }}%)"
+
+  # ---------------------------------------------------------------------------
+  # [finance-vm-01 전용] Windows 서버 알람
+  # ---------------------------------------------------------------------------
+  - name: FinanceVmAlerts
+    rules:
+      - alert: FinanceVmCpuHigh
+        expr: >
+          100 - (avg by(nodename) (rate(windows_cpu_time_total{mode='idle',
+            nodename='finance-vm-01'}[2m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'finance-vm-01 CPU 부하 경고'
+          description: 'finance-vm-01 CPU 사용량이 5분간 80%를 초과했습니다. (현재: {{ $value | printf "%.1f" }}%)'
+
+      - alert: FinanceVmMemoryHigh
+        expr: >
+          (1 - windows_os_physical_memory_free_bytes{nodename='finance-vm-01'}
+            / windows_cs_physical_memory_bytes{nodename='finance-vm-01'}) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'finance-vm-01 메모리 부하 경고'
+          description: 'finance-vm-01 메모리 사용량이 5분간 85%를 초과했습니다. (현재: {{ $value | printf "%.1f" }}%)'
+
+      - alert: FinanceVmDiskLow
+        expr: >
+          (windows_logical_disk_free_bytes{nodename='finance-vm-01', volume='C:'}
+            / windows_logical_disk_size_bytes{nodename='finance-vm-01', volume='C:'}) * 100 < 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'finance-vm-01 디스크 여유 경고 (C:)'
+          description: 'finance-vm-01 C: 드라이브 여유공간이 20% 미만입니다. (현재: {{ $value | printf "%.1f" }}%)'
