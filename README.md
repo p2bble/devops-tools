@@ -10,7 +10,7 @@ Prometheus 기반 온프레미스 + AWS 하이브리드 인프라 통합 모니�
 
 ```
                     ┌─────────────────────────────────────────────┐
-                    │           Monitoring Server (pdkcld1)        │
+                    │           Monitoring Server (monitor-01)        │
                     │           172.19.100.10 (DMZ)                │
   ┌──────────┐      │  ┌───────────┐    ┌──────────────────┐     │
   │  Servers │─────▶│  │Prometheus │───▶│    Grafana       │     │
@@ -46,13 +46,13 @@ Prometheus 기반 온프레미스 + AWS 하이브리드 인프라 통합 모니�
 [인터넷] ── FortiGate FW ── HAProxy(172.19.100.10 / 172.18.100.48)
                 │
                 ├── DMZ (172.19.100.x)
-                │   ├── pdkcld1 (.10) — Monitoring Stack, KVM Host
-                │   ├── dev-server (.20) — 개발 서버
+                │   ├── monitor-01 (.10) — Monitoring Stack, KVM Host
+                │   ├── vm-server-02 (.20) — 개발 서버
                 │   └── lions-agent (.21)
                 │
                 └── Internal (172.18.100.x)
                     ├── vm-server-01 (.20) — KVM Host, CoreDNS, GitLab Runner
-                    └── gitlab-srv (.21) — GitLab CE
+                    └── gitlab (.21) — GitLab CE
 ```
 
 ---
@@ -138,11 +138,11 @@ Grafana: `http://YOUR_SERVER:38889` (admin / .env 설정값)
 | # | Job | 대상 | 비고 |
 |---|---|---|---|
 | 1 | prometheus | localhost:9099 | Self-monitoring |
-| 2 | node-exporter | pdkcld1, vm-server-01, dev-server 등 | OS 메트릭 |
-| 3 | libvirt-exporter | pdkcld1, vm-server-01 | KVM VM 상태 |
-| 4 | cadvisor | dev-server | Docker 컨테이너 |
-| 5 | gitlab | gitlab-srv 컴포넌트 7개 | GitLab 전체 |
-| 6 | gitlab-ci-pipelines | gitlab-srv:8080 | CI 파이프라인 |
+| 2 | node-exporter | monitor-01, vm-server-01, vm-server-02 등 | OS 메트릭 |
+| 3 | libvirt-exporter | monitor-01, vm-server-01 | KVM VM 상태 |
+| 4 | cadvisor | vm-server-02 | Docker 컨테이너 |
+| 5 | gitlab | gitlab 컴포넌트 7개 | GitLab 전체 |
+| 6 | gitlab-ci-pipelines | gitlab:8080 | CI 파이프라인 |
 | 7 | haproxy | haproxy-exporter:9101 | 로드밸런서 |
 | 8 | blackbox-http | monitor, scope, ERP 등 | HTTP/HTTPS 가용성 |
 | 9 | blackbox-http-insecure | source.clobot.co.kr | GitLab HTTPS |
