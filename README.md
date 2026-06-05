@@ -135,6 +135,39 @@ vi fortigate-exporter/fortigate-key.yaml   # FortiGate IP / API Token 입력
 .
 ├── docker-compose.yml
 ├── .env.example
+├── manage.sh
+├── prometheus/
+│   ├── prometheus.yml          # ← 서버 목록 커스터마이징 필수
+│   └── rules/
+│       └── alert.rules.yml     # 알람 규칙 (BackupFailed, SSLExpiry 등)
+├── alertmanager/
+│   ├── alertmanager.yml        # ← 수신 이메일/채널 설정
+│   └── templates/
+├── grafana/
+│   ├── provisioning/
+│   └── dashboards/
+│       ├── overview.json       # 전체 인프라 현황
+│       ├── network.json        # 네트워크 장비 트래픽
+│       ├── backup.json         # 백업 성공/실패 현황
+│       ├── log.json            # 로그 수집 현황
+│       └── idrac.json          # Dell iDRAC 하드웨어
+├── snmp-exporter/
+├── blackbox/
+├── fortigate-exporter/
+├── ansible/
+│   ├── install_monitoring_agents.yml
+│   └── inventory.ini.example
+└── scripts/
+    └── backup/                 # 백업 자동화 스크립트 템플릿
+        ├── backup-vm.sh.example
+        ├── backup-service.sh.example
+        ├── backup-files.sh.example
+        ├── cron.example
+        └── README.md
+```
+.
+├── docker-compose.yml
+├── .env.example
 ├── manage.sh                   # 스택 관리 스크립트
 ├── prometheus/
 │   ├── prometheus.yml          # ← 서버 목록 커스터마이징 필수
@@ -172,3 +205,19 @@ vi fortigate-exporter/fortigate-key.yaml   # FortiGate IP / API Token 입력
 - [Alertmanager 문서](https://prometheus.io/docs/alerting/latest/alertmanager/)
 - [Node Exporter](https://github.com/prometheus/node_exporter)
 - [SNMP Exporter](https://github.com/prometheus/snmp_exporter)
+
+---
+
+## 백업 스크립트 (`scripts/backup/`)
+
+모니터링과 연동되는 백업 자동화 템플릿입니다.
+
+| 스크립트 | 용도 |
+|---------|------|
+| `backup-vm.sh.example` | KVM VM 병렬 백업 (inclusion/exclusion 목록 지원) |
+| `backup-service.sh.example` | 서비스 백업파일 → NAS rsync (GitLab, PostgreSQL 등) |
+| `backup-files.sh.example` | 서버 설정파일 → NAS rsync (/etc, /usr/local/bin, /data/docker) |
+
+모든 스크립트는 **Prometheus textfile**에 성공 여부를 기록하여 `BackupFailed` / `BackupStale` 알람과 자동 연동됩니다.
+
+> 상세: [scripts/backup/README.md](./scripts/backup/README.md)

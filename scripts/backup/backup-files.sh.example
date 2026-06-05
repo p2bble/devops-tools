@@ -1,0 +1,113 @@
+#!/bin/bash
+# =============================================================================
+# backup-files.sh — 서버 설정 파일 NAS rsync 백업
+#
+# 기능:
+#   - /etc, /usr/local/bin, /data/docker(설정파일) 등을 NAS에 rsync
+#   - 대용량 데이터 볼륨, 바이너리는 자동 제외
+#   - crontab 덤프 포함
+#   - Prometheus textfile(.prom)에 성공 여부 기록 → 알람 연동
+#
+# 설치:
+#   sudo cp backup-files.sh.example /usr/local/bin/backup-files.sh
+#   sudo chmod +x /usr/local/bin/backup-files.sh
+#
+# cron (매일 새벽 4시):
+#   0 4 * * * root /usr/local/bin/backup-files.sh
+# =============================================================================
+
+set -uo pipefail
+[ "$EUID" -ne 0 ] && { echo "[에러] sudo로 실행하세요."; exit 1; }
+
+# ── [CUSTOMIZE] 설정 ──────────────────────────────────────────────────────────
+HOST=$(hostname -s)
+NAS_BASE="/mnt/nas/backup/servers"                  # NAS 마운트 경로
+DST="${NAS_BASE}/${HOST}"                            # 서버별 디렉토리
+LOG="/var/log/backup-files.log"
+PROM_DIR="/var/lib/node_exporter/textfile"
+PROM_FILE="${PROM_DIR}/server_file_backup.prom"
+
+# 백업 대상 디렉토리 목록 (경로: 제외 패턴 배열)
+declare -A BACKUP_TARGETS=(
+    ["/etc"]=""
+    ["/usr/local/bin"]=""
+    ["/data/docker"]=""                             # Docker Compose 설정 등
+)
+
+# /data/docker 백업 시 제외할 패턴 (대용량 데이터 볼륨)
+DOCKER_EXCLUDES=(
+    "*/data/"
+    "*/volumes/"
+    "*.iso"
+    "*.tar"
+    "*.tar.gz"
+    "*/builds/"
+    "*/cache/"
+)
+
+# /usr/local/bin 백업 시 제외할 바이너리
+BIN_EXCLUDES=(
+    "node_exporter"
+    "snmp_exporter"
+    "docker-compose"
+)
+# ─────────────────────────────────────────────────────────────────────────────
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${HOST}] $*" | tee -a "${LOG}"; }
+
+mkdir -p "${DST}" "${PROM_DIR}"
+RESULT=0
+
+log "===== 서버 파일 백업 시작 → ${DST} ====="
+
+# NAS 마운트 확인
+if ! mountpoint -q "${NAS_BASE}" 2>/dev/null; then
+    log "[에러] NAS 미마운트: ${NAS_BASE}"
+    exit 1
+fi
+
+# crontab 덤프
+crontab -l > "${DST}/root_crontab.txt" 2>/dev/null || true
+log "crontab 덤프 완료"
+
+# /etc 백업
+rsync_dir() {
+    local src="$1" dst_name="$2"; shift 2
+    local -a excludes=("$@")
+    local dst="${DST}/${dst_name}"
+    local exclude_args=()
+    for e in "${excludes[@]+"${excludes[@]}"}"; do exclude_args+=(--exclude="${e}"); done
+
+    mkdir -p "${dst}"
+    local rc=0
+    rsync -a --delete "${exclude_args[@]+"${exclude_args[@]}"}" \
+        "${src}/" "${dst}/" >> "${LOG}" 2>&1 || rc=$?
+    if [ "${rc}" -eq 0 ]; then log "${src} 완료"
+    else log "[에러] ${src} 실패 (exit: ${rc})"; RESULT=1; fi
+}
+
+rsync_dir /etc "etc"
+rsync_dir /usr/local/bin "usr_local_bin" "${BIN_EXCLUDES[@]}"
+
+if [ -d "/data/docker" ]; then
+    rsync_dir /data/docker "data_docker" "${DOCKER_EXCLUDES[@]}"
+fi
+
+# [CUSTOMIZE] 추가 백업 경로가 있으면 여기에 rsync_dir 호출 추가
+# rsync_dir /opt/app "opt_app"
+# rsync_dir /home/user/.config "user_config"
+
+SIZE=$(du -sh "${DST}" 2>/dev/null | cut -f1)
+log "===== 완료: ${SIZE} (exit: ${RESULT}) ====="
+
+# Prometheus textfile 기록
+{
+    echo "# HELP server_file_backup_success 서버 파일 백업 성공 여부 (1=성공, 0=실패)"
+    echo "# TYPE server_file_backup_success gauge"
+    echo "server_file_backup_success{server=\"${HOST}\"} $(( 1 - RESULT ))"
+    echo "# HELP server_file_backup_last_timestamp 마지막 백업 Unix timestamp"
+    echo "# TYPE server_file_backup_last_timestamp gauge"
+    echo "server_file_backup_last_timestamp{server=\"${HOST}\"} $(date +%s)"
+} > "${PROM_FILE}"
+
+exit "${RESULT}"

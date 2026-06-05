@@ -1,0 +1,102 @@
+#!/bin/bash
+# =============================================================================
+# backup-vm.sh — KVM 가상 머신 병렬 백업
+#
+# 기능:
+#   - virsh 기반 KVM VM을 NAS/스토리지에 병렬 백업
+#   - 백업 성공/실패를 Prometheus textfile(.prom)에 기록 → 알람 연동
+#   - VM_INCLUDE 목록 지정 시 해당 VM만, 비어 있으면 전체 VM 백업
+#
+# 설치:
+#   sudo cp backup-vm.sh.example /usr/local/bin/backup-vm.sh
+#   sudo chmod +x /usr/local/bin/backup-vm.sh
+#
+# cron (매일 새벽 2시):
+#   0 2 * * * root /usr/local/bin/backup-vm.sh >> /var/log/vm-backup.log 2>&1
+# =============================================================================
+
+set -uo pipefail
+[ "$EUID" -ne 0 ] && { echo "[에러] sudo로 실행하세요."; exit 1; }
+
+# ── [CUSTOMIZE] 설정 ──────────────────────────────────────────────────────────
+LOG="/var/log/vm-backup.log"
+PROM_DIR="/var/lib/node_exporter/textfile"          # Node Exporter textfile 경로
+PROM_FILE="${PROM_DIR}/vm_backup.prom"
+MAX_PARALLEL=3                                       # 동시 백업 VM 수 (서버 I/O에 맞게 조정)
+
+# 백업할 VM 지정 (비어 있으면 전체 VM 백업)
+VM_INCLUDE=(
+    # "vm-name-01"
+    # "vm-name-02"
+)
+
+# 백업 제외할 VM (임시 VM, 테스트 VM 등)
+VM_EXCLUDE=(
+    # "temp-vm"
+)
+# ─────────────────────────────────────────────────────────────────────────────
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "${LOG}"; }
+
+mkdir -p "${PROM_DIR}"
+RESULT_DIR=$(mktemp -d /tmp/vm-backup-result-XXXXXX)
+trap 'rm -rf "${RESULT_DIR}"' EXIT
+
+log "===== VM 백업 시작 (최대 병렬: ${MAX_PARALLEL}) ====="
+
+mapfile -t ALL_VMS < <(virsh list --all --name | grep -v '^$')
+declare -a PIDS=() VNAMES=()
+SUCCESS=0; FAIL=0; SKIP=0
+
+wait_slot() {
+    while [ "${#PIDS[@]}" -ge "${MAX_PARALLEL}" ]; do
+        local np=() nn=()
+        for i in "${!PIDS[@]}"; do
+            kill -0 "${PIDS[$i]}" 2>/dev/null && np+=("${PIDS[$i]}") && nn+=("${VNAMES[$i]}")
+        done
+        PIDS=("${np[@]+"${np[@]}"}"); VNAMES=("${nn[@]+"${nn[@]}"}")
+        [ "${#PIDS[@]}" -ge "${MAX_PARALLEL}" ] && sleep 30
+    done
+}
+
+for VM in "${ALL_VMS[@]}"; do
+    # VM_INCLUDE 지정 시 해당 VM만 처리
+    if [ "${#VM_INCLUDE[@]}" -gt 0 ]; then
+        local_include=0
+        for INC in "${VM_INCLUDE[@]}"; do [ "${VM}" = "${INC}" ] && local_include=1 && break; done
+        if [ "${local_include}" -eq 0 ]; then log "[SKIP] ${VM}"; (( SKIP++ )) || true; continue; fi
+    fi
+
+    local_exclude=0
+    for EX in "${VM_EXCLUDE[@]+"${VM_EXCLUDE[@]}"}"; do [ "${VM}" = "${EX}" ] && local_exclude=1 && break; done
+    if [ "${local_exclude}" -eq 1 ]; then log "[SKIP] ${VM}"; (( SKIP++ )) || true; continue; fi
+
+    wait_slot
+
+    SAFE="${VM//\//-}"
+    # [CUSTOMIZE] backup-vm-single.sh 경로: VM 1개를 백업하는 실제 스크립트
+    ( /usr/local/bin/backup-vm-single.sh "${VM}"; echo $? > "${RESULT_DIR}/${SAFE}" ) &
+    PIDS+=($!); VNAMES+=("${VM}")
+    log "[START] ${VM} (PID: $!)"
+done
+
+for pid in "${PIDS[@]+"${PIDS[@]}"}"; do wait "${pid}" 2>/dev/null || true; done
+
+# 결과 집계 및 Prometheus 메트릭 기록
+{
+    echo "# HELP vm_backup_success VM 개별 백업 성공 여부 (1=성공, 0=실패)"
+    echo "# TYPE vm_backup_success gauge"
+    for VM in "${ALL_VMS[@]}"; do
+        SAFE="${VM//\//-}"
+        f="${RESULT_DIR}/${SAFE}"; [ -f "${f}" ] || continue
+        rc=$(<"${f}")
+        echo "vm_backup_success{vm=\"${VM}\"} $(( rc == 0 ? 1 : 0 ))"
+        if (( rc == 0 )); then (( SUCCESS++ )) || true; else (( FAIL++ )) || true; fi
+    done
+    echo "# HELP vm_backup_last_timestamp 마지막 백업 실행 Unix timestamp"
+    echo "# TYPE vm_backup_last_timestamp gauge"
+    echo "vm_backup_last_timestamp $(date +%s)"
+} > "${PROM_FILE}"
+
+log "===== 완료: 성공 ${SUCCESS} / 실패 ${FAIL} / 제외 ${SKIP} ====="
+[ "${FAIL}" -eq 0 ]

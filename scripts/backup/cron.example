@@ -1,0 +1,29 @@
+# =============================================================================
+# 백업 스크립트 cron 설정 예시
+# 적용: sudo crontab -e 또는 /etc/cron.d/infra-backup 에 저장
+# =============================================================================
+
+# ── 환경 설정 ─────────────────────────────────────────────────────────────────
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+MAILTO=""                         # 에러 메일 수신 주소 (비어 있으면 비활성)
+
+# ── [CUSTOMIZE] 스케줄 조정 ───────────────────────────────────────────────────
+
+# 서버 설정 파일 백업 (매일 새벽 1시) — 빠름, 모든 서버에 설치
+0 1 * * * root /usr/local/bin/backup-files.sh
+
+# 서비스 백업 rsync (매일 새벽 3시) — 서비스가 백업 파일 생성한 후 실행
+0 3 * * * root /usr/local/bin/backup-gitlab.sh
+# 0 3 * * * root /usr/local/bin/backup-postgres.sh
+# 0 3 * * * root /usr/local/bin/backup-graylog.sh
+
+# VM 백업 (매일 새벽 2시, KVM 호스트에만 설치)
+0 2 * * * root /usr/local/bin/backup-vm.sh
+
+# ── 참고: Prometheus 알람과 연동 ──────────────────────────────────────────────
+# 위 스크립트는 /var/lib/node_exporter/textfile/*.prom 에 결과를 기록합니다.
+# prometheus/rules/alert.rules.yml 의 아래 알람이 자동으로 감지합니다:
+#
+#   BackupFailed   — 백업 성공 여부 = 0 (즉시 알람)
+#   BackupStale    — 마지막 백업 timestamp가 25시간 이상 경과 (누락 감지)

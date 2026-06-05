@@ -1,0 +1,87 @@
+#!/bin/bash
+# =============================================================================
+# backup-service.sh — Docker 서비스 데이터 백업 (rsync → NAS)
+#
+# 기능:
+#   - 서비스가 자체 생성한 백업 파일(tar/dump)을 NAS로 rsync
+#   - 최신 파일 1개만 유지 (구버전 자동 삭제)
+#   - Prometheus textfile(.prom)에 성공 여부 기록 → 알람 연동
+#
+# 대상 예시:
+#   GitLab (gitlab-backup.tar), PostgreSQL (dump.sql.gz),
+#   MySQL (dump.sql), Elasticsearch (snapshot) 등
+#
+# 설치:
+#   sudo cp backup-service.sh.example /usr/local/bin/backup-gitlab.sh
+#   sudo chmod +x /usr/local/bin/backup-gitlab.sh
+#
+# cron (매일 새벽 3시):
+#   0 3 * * * root /usr/local/bin/backup-gitlab.sh
+# =============================================================================
+
+set -uo pipefail
+
+# ── [CUSTOMIZE] 설정 ──────────────────────────────────────────────────────────
+SERVICE_NAME="gitlab"                               # 서비스명 (Prometheus 레이블, 로그에 표시)
+SRC_DIR="/var/backups/gitlab"                       # 서비스가 백업 파일을 생성하는 디렉토리
+DST_DIR="/mnt/nas/backup/services/gitlab"           # NAS 마운트 경로 (rsync 목적지)
+FILE_PATTERN="*.tar"                                # 백업 파일 패턴 (*.tar, *.sql.gz 등)
+LOG="/var/log/backup-${SERVICE_NAME}.log"
+PROM_DIR="/var/lib/node_exporter/textfile"
+PROM_FILE="${PROM_DIR}/service_backup_${SERVICE_NAME}.prom"
+# ─────────────────────────────────────────────────────────────────────────────
+
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${SERVICE_NAME}] $*" | tee -a "${LOG}"; }
+
+mkdir -p "${DST_DIR}" "${PROM_DIR}"
+RESULT=0
+
+log "===== 백업 시작: ${SRC_DIR} → ${DST_DIR} ====="
+
+# NAS 마운트 확인
+if ! mountpoint -q "$(dirname "${DST_DIR}")"; then
+    log "[에러] NAS 미마운트: $(dirname "${DST_DIR}")"
+    RESULT=1
+fi
+
+if [ "${RESULT}" -eq 0 ]; then
+    # 가장 최신 백업 파일 탐색
+    LATEST=$(ls -t "${SRC_DIR}"/${FILE_PATTERN} 2>/dev/null | head -1)
+
+    if [ -z "${LATEST:-}" ]; then
+        log "[에러] 소스 백업 파일 없음 (${SRC_DIR}/${FILE_PATTERN})"
+        RESULT=1
+    else
+        LATEST_FILE=$(basename "${LATEST}")
+        log "대상 파일: ${LATEST_FILE}"
+
+        if [ -f "${DST_DIR}/${LATEST_FILE}" ]; then
+            log "이미 최신 상태 — 건너뜀"
+        else
+            # 구버전 삭제 후 최신 파일 rsync
+            find "${DST_DIR}" -maxdepth 1 -name "${FILE_PATTERN}" -delete
+            log "구버전 삭제 완료"
+
+            rsync -av --progress "${LATEST}" "${DST_DIR}/" >> "${LOG}" 2>&1 || RESULT=1
+
+            if [ "${RESULT}" -eq 0 ]; then
+                log "rsync 완료: $(du -sh "${DST_DIR}/${LATEST_FILE}" | cut -f1)"
+            else
+                log "[에러] rsync 실패"
+            fi
+        fi
+    fi
+fi
+
+# Prometheus textfile 기록
+{
+    echo "# HELP service_backup_success 서비스 백업 성공 여부 (1=성공, 0=실패)"
+    echo "# TYPE service_backup_success gauge"
+    echo "service_backup_success{service=\"${SERVICE_NAME}\"} $(( 1 - RESULT ))"
+    echo "# HELP service_backup_last_timestamp 마지막 백업 Unix timestamp"
+    echo "# TYPE service_backup_last_timestamp gauge"
+    echo "service_backup_last_timestamp{service=\"${SERVICE_NAME}\"} $(date +%s)"
+} > "${PROM_FILE}"
+
+log "===== 완료 (exit: ${RESULT}) ====="
+exit "${RESULT}"
