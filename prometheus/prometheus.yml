@@ -1,6 +1,12 @@
 # =============================================================================
-# Prometheus Configuration v2.2
-# 최종수정: 2026-03-18
+# Prometheus Configuration
+# 버전: 2.52.0
+#
+# ── 커스터마이징 가이드 ──────────────────────────────────────────────────────
+# 1. external_labels.datacenter → 사이트 식별자 변경
+# 2. [CUSTOMIZE] 주석 구간의 IP / nodename 을 실제 서버로 교체
+# 3. 불필요한 job은 주석 처리 또는 삭제
+# 4. 새 서버 추가: node-exporter 섹션에 targets 1줄 추가
 # =============================================================================
 
 global:
@@ -8,8 +14,8 @@ global:
   evaluation_interval: 15s
   scrape_timeout:      10s
   external_labels:
-    datacenter: 'clobot-hq'
-    environment: 'production'
+    datacenter: '${DATACENTER:-your-datacenter}'
+    environment: '${ENVIRONMENT:-production}'
 
 alerting:
   alertmanagers:
@@ -31,118 +37,103 @@ scrape_configs:
 
   # ---------------------------------------------------------------------------
   # [2] 서버 OS 모니터링 (Node Exporter :9100)
+  #
+  # [CUSTOMIZE] targets IP와 nodename 레이블을 실제 서버로 교체
+  #
+  # 설치 (각 서버에서):
+  #   docker run -d --name node-exporter --net="host" --pid="host" \
+  #     -v "/:/host:ro,rslave" prom/node-exporter --path.rootfs=/host
   # ---------------------------------------------------------------------------
   - job_name: 'node-exporter'
     static_configs:
-      # === DMZ 서버 (172.19.100.x) ===
-      - targets: ['172.19.100.10:9100']
+      # 예시 — 실제 서버 IP와 nodename으로 교체
+      - targets: ['192.168.1.10:9100']
         labels:
-          nodename: 'pdkcld1'
+          nodename: 'monitoring-server'
           role: 'infra'
 
-      - targets: ['172.19.100.20:9100']
+      - targets: ['192.168.1.11:9100']
         labels:
-          nodename: 'dev-server'
-          role: 'dev'
+          nodename: 'app-server-01'
+          role: 'app'
 
-      - targets: ['172.19.100.11:9100']
+      - targets: ['192.168.1.12:9100']
         labels:
-          nodename: 'clobot-erp'
-          role: 'erp'
+          nodename: 'db-server-01'
+          role: 'db'
 
-      - targets: ['172.19.100.21:9100']
-        labels:
-          nodename: 'lions-agent'
-          role: 'robot'
-          server: 'vm-server-02'
-
-      # === Internal 서버 (172.18.100.x) ===
-      - targets: ['172.18.100.20:9100']
-        labels:
-          nodename: 'vm-server-01'
-          role: 'infra'
-
-      - targets: ['172.18.100.21:9100']
-        labels:
-          nodename: 'gitlab-srv'
-          role: 'devops'
-
-      # === 미설치 / 추후 추가 예정 ===
-      # - targets: ['172.18.100.40:9100']   # ai-gpu-1
-      # - targets: ['172.18.100.41:9100']   # ai-gpu-2
-      # - targets: ['172.18.100.45:9100']   # lab-server
+      # Windows 서버는 windows_exporter 사용 (:9182)
+      # - targets: ['192.168.1.20:9182']
+      #   labels:
+      #     nodename: 'windows-server-01'
+      #     role: 'erp'
 
   # ---------------------------------------------------------------------------
-  # [3] KVM / Libvirt 가상화 모니터링
-  # dev-server는 개발자 VM이므로 모니터링 제외
+  # [3] KVM / Libvirt 가상화 모니터링 (KVM 호스트에만 해당)
+  #
+  # 설치: https://github.com/prometheus-community/libvirt_exporter
   # ---------------------------------------------------------------------------
   - job_name: 'libvirt-exporter'
     static_configs:
-      - targets: ['172.18.100.20:9177']
+      # [CUSTOMIZE] KVM 호스트 IP로 교체
+      - targets: ['192.168.1.10:9177']
         labels:
-          host: 'vm-server-01'
-      - targets: ['172.19.100.10:9177']
-        labels:
-          host: 'pdkcld1'
-      # - targets: ['172.19.100.20:9177']   # dev-server — 개발자 VM, 모니터링 제외
+          nodename: 'kvm-host-01'
 
   # ---------------------------------------------------------------------------
   # [4] Docker 컨테이너 모니터링 (cAdvisor :8080)
-  # dev-server: 설치됨 / pdkcld1, vm-server-01: 설치 후 주석 해제
+  #
+  # 설치:
+  #   docker run -d --name cadvisor --privileged \
+  #     -v /:/rootfs:ro -v /var/run:/var/run:ro -v /sys:/sys:ro \
+  #     -v /var/lib/docker/:/var/lib/docker:ro \
+  #     -p 8080:8080 gcr.io/cadvisor/cadvisor:latest
   # ---------------------------------------------------------------------------
   - job_name: 'cadvisor'
     static_configs:
-      - targets: ['172.19.100.20:8080']
+      # [CUSTOMIZE] Docker 호스트 IP 목록
+      - targets: ['192.168.1.10:8080']
         labels:
-          host: 'dev-server'
-      # - targets: ['172.19.100.10:8080']   # pdkcld1 — 설치 후 주석 해제
-      # - targets: ['172.18.100.20:8080']   # vm-server-01 — 설치 후 주석 해제
+          nodename: 'monitoring-server'
+      - targets: ['192.168.1.11:8080']
+        labels:
+          nodename: 'app-server-01'
 
   # ---------------------------------------------------------------------------
-  # [5] GitLab 컴포넌트 모니터링
+  # [5] SNMP 모니터링 (네트워크 장비: 스위치, 방화벽, AP 등)
+  #
+  # [CUSTOMIZE] 네트워크 장비 IP 목록 및 모듈 지정
+  # 지원 장비: FortiGate(fortigate), Cisco(if_mib), Aruba(aruba_cx) 등
   # ---------------------------------------------------------------------------
-  - job_name: 'gitlab'
-    scrape_interval: 30s
-    scrape_timeout: 25s
+  - job_name: 'snmp-network'
     static_configs:
       - targets:
-          - '172.18.100.21:9100'   # Node Exporter
-          - '172.18.100.21:9121'   # Redis
-          - '172.18.100.21:9187'   # PostgreSQL
-          - '172.18.100.21:9168'   # Puma (Rails)
-          # - '172.18.100.21:9236' # Gitaly — 내부 127.0.0.1 바인딩, 외부 접근 불가
-          - '172.18.100.21:9229'   # Workhorse
-          - '172.18.100.21:8082'   # Sidekiq
-          - '172.18.100.20:9252'   # GitLab Runner (vm-server-01)
-
-  # GitLab CI Pipelines Exporter
-  - job_name: 'gitlab-ci-pipelines'
-    static_configs:
-      - targets: ['172.18.100.21:8080']
-        labels:
-          nodename: 'gitlab-srv'
+          - 192.168.1.1    # [CUSTOMIZE] 방화벽/라우터 IP
+          - 192.168.1.2    # [CUSTOMIZE] 코어 스위치 IP
+    metrics_path: /snmp
+    params:
+      module: [if_mib]    # [CUSTOMIZE] snmp.yml에 정의된 모듈명
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: snmp-exporter:9116
 
   # ---------------------------------------------------------------------------
-  # [6] HAProxy 로드밸런서
+  # [6] HTTP/HTTPS/ICMP 엔드포인트 가용성 (Blackbox Exporter)
   # ---------------------------------------------------------------------------
-  - job_name: 'haproxy'
-    static_configs:
-      - targets: ['haproxy-exporter:9101']
-
-  # ---------------------------------------------------------------------------
-  # [7] HTTP/HTTPS 엔드포인트 가용성 (Blackbox)
-  # DNS: CoreDNS(172.18.100.20) → HAProxy 내부IP(172.18.100.48) 해석
-  # ---------------------------------------------------------------------------
-  - job_name: 'blackbox-http.*'
+  - job_name: 'blackbox-http'
     metrics_path: /probe
     params:
       module: [http_2xx]
     static_configs:
       - targets:
-          - https://monitor.clobot.co.kr       # Grafana (clobot.co.kr 인증서)
-          - http://172.19.100.11               # clobot-erp (내부 IP)
-          - https://scope-s3-console.clobotspot.com
-          - https://scope.clobotspot.com
+          # [CUSTOMIZE] 모니터링할 HTTP/HTTPS 엔드포인트 목록
+          - https://your-service.example.com
+          - https://your-grafana.example.com
+          - https://your-gitlab.example.com
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
@@ -151,57 +142,16 @@ scrape_configs:
       - target_label: __address__
         replacement: blackbox-exporter:9115
 
-  # GitLab — HAProxy가 clobot.co.kr 와일드카드 인증서로 SSL 종료하므로
-  # CoreDNS 경유 시 정상 인증서로 접근 가능 (insecure 불필요할 수 있음)
-  # 만약 여전히 자체서명 인증서를 사용한다면 insecure 모듈 유지
-  - job_name: 'blackbox-http-insecure'
-    metrics_path: /probe
-    params:
-      module: [http_2xx_insecure]
-    static_configs:
-      - targets:
-          - https://source.clobot.co.kr:9000   # GitLab
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
-        target_label: instance
-      - target_label: __address__
-        replacement: blackbox-exporter:9115
-
-  # ---------------------------------------------------------------------------
-  # [8] TCP 포트 가용성 (Blackbox)
-  # 구 사옥 MQTT(210.95.250.155:1883) 제거
-  # 신규 외부 MQTT IP 확인 후 아래 주석 해제
-  # ---------------------------------------------------------------------------
-  # - job_name: 'blackbox-tcp'
-  #   metrics_path: /probe
-  #   params:
-  #     module: [tcp_connect]
-  #   static_configs:
-  #     - targets:
-  #         - NEW_MQTT_IP:1883
-  #   relabel_configs:
-  #     - source_labels: [__address__]
-  #       target_label: __param_target
-  #     - source_labels: [__param_target]
-  #       target_label: instance
-  #     - target_label: __address__
-  #       replacement: blackbox-exporter:9115
-
-  # ---------------------------------------------------------------------------
-  # [9] ICMP Ping 가용성 (Blackbox)
-  # ---------------------------------------------------------------------------
   - job_name: 'blackbox-icmp'
     metrics_path: /probe
     params:
       module: [icmp]
     static_configs:
       - targets:
-          - 172.19.100.11            # clobot-erp
-          - 172.19.100.21            # lions-agent
-          - 172.18.100.20            # vm-server-01
-          - 172.18.100.21            # gitlab-srv
+          # [CUSTOMIZE] Ping 모니터링 대상 IP 목록
+          - 192.168.1.1   # 게이트웨이
+          - 192.168.1.10  # 서버1
+          - 192.168.1.11  # 서버2
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
@@ -211,147 +161,47 @@ scrape_configs:
         replacement: blackbox-exporter:9115
 
   # ---------------------------------------------------------------------------
-  # [10] 네트워크 장비 SNMP (if_mib — 인터페이스 트래픽)
+  # [7] SSL 인증서 만료 모니터링 (Blackbox Exporter)
   # ---------------------------------------------------------------------------
-  - job_name: 'snmp'
-    scrape_interval: 1m
-    scrape_timeout: 50s
-    params:
-      module: [if_mib_standard]
-      auth:   [clobot_v2c]
-    static_configs:
-      - targets:
-          - 172.18.100.1             # FortiGate DEV 인터페이스
-          - 172.19.100.1             # FortiGate DMZ 인터페이스
-          # 추가 스위치 — SNMP 설정 후 주석 해제
-          # - 172.18.100.10          # Cisco Switch #1
-          # - 172.18.100.16          # Cisco Switch #2
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
-        target_label: instance
-      - target_label: __address__
-        replacement: snmp-exporter:9116
-
-  # ---------------------------------------------------------------------------
-  # [11] FortiGate 전용 SNMP (CPU/메모리/세션 수집)
-  # ---------------------------------------------------------------------------
-  - job_name: 'snmp-fortigate'
-    scrape_interval: 1m
-    scrape_timeout: 50s
-    params:
-      module: [fortigate_mib]
-      auth:   [clobot_v2c]
-    static_configs:
-      - targets:
-          - 172.18.100.1             # FortiGate DEV
-          - 172.19.100.1             # FortiGate DMZ
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
-        target_label: instance
-      - target_label: __address__
-        replacement: snmp-exporter:9116
-
-  # ---------------------------------------------------------------------------
-  # [12] Dell iDRAC 하드웨어 모니터링 (SNMP)
-  # ---------------------------------------------------------------------------
-  - job_name: 'idrac'
-    scrape_interval: 2m
-    scrape_timeout: 50s
-    params:
-      module: [dell_idrac]
-      auth:   [clobot_v2c]
-    static_configs:
-      - targets:
-          - 172.18.100.240           # VM 서버1 iDRAC (PowerEdge R750xs)
-          - 172.18.100.241           # iDRAC #2
-          - 172.18.100.242           # DEV02 iDRAC
-          - 172.18.100.244           # 연구소 iDRAC (Precision 7960)
-          - 172.18.100.245           # iDRAC #5
-          # - 172.18.100.243         # DEV iDRAC (확인 필요)
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
-        target_label: instance
-      - target_label: __address__
-        replacement: snmp-exporter:9116
-
-  # ---------------------------------------------------------------------------
-  # [13] AWS CloudWatch 서비스 (RDS, ALB 등 - YACE 경유)
-  # ---------------------------------------------------------------------------
-  - job_name: 'aws-cloudwatch'
-    scrape_interval: 5m            # CloudWatch API 비용 방지를 위해 5분 권장
-    static_configs:
-      - targets: ['aws-exporter:5000']
-
-  # ---------------------------------------------------------------------------
-  # [14] AWS EC2 인스턴스 자동 발견 (Node Exporter 직접 수집)
-  # EC2 내부에 Node Exporter 9100 포트가 열려있어야 합니다
-  # ※ 현재 VPN/SG 미설정으로 수집 불가 — 네트워크 구성 완료 후 동작 확인
-  # ---------------------------------------------------------------------------
-  - job_name: 'aws-ec2-node-exporter'
-    ec2_sd_configs:
-      - region: 'ap-northeast-2'
-        port: 9100
-    relabel_configs:
-      - source_labels: [__meta_ec2_instance_state]
-        regex: running
-        action: keep
-      - source_labels: [__meta_ec2_tag_Name]
-        target_label: nodename
-      - source_labels: [__meta_ec2_public_ip]
-        target_label: __address__
-        replacement: '${1}:9100'
-
-  # ---------------------------------------------------------------------------
-  # [15] AWS EC2 버지니아 (us-east-1)
-  # ---------------------------------------------------------------------------
-  - job_name: 'aws-ec2-node-exporter-us'
-    ec2_sd_configs:
-      - region: 'us-east-1'
-        port: 9100
-    relabel_configs:
-      - source_labels: [__meta_ec2_instance_state]
-        regex: running
-        action: keep
-      - source_labels: [__meta_ec2_tag_Name]
-        target_label: nodename
-      - source_labels: [__meta_ec2_public_ip]
-        target_label: __address__
-        replacement: '${1}:9100'
-
-  # ---------------------------------------------------------------------------
-  # [16] FortiGate REST API — DMZ (172.19.100.1)
-  # fortigate_exporter: prometheuscommunity/fortigate-exporter
-  # 인터페이스 실명칭, FortiAP/WiFi, 메모리, CPU per-core 수집
-  # ---------------------------------------------------------------------------
-  - job_name: 'fortigate'
-    scrape_interval: 1m
-    scrape_timeout: 50s
+  - job_name: 'blackbox-ssl'
     metrics_path: /probe
     params:
-      target: ['https://172.19.100.1:38879']
+      module: [http_2xx]
     static_configs:
-      - targets: ['fortigate-exporter:9710']
-        labels:
-          instance: '172.19.100.1'
-          location: '5F_Server'
+      - targets:
+          # [CUSTOMIZE] SSL 인증서 모니터링할 도메인 목록
+          - https://your-service.example.com
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
 
   # ---------------------------------------------------------------------------
-  # [17] FortiGate REST API — Internal (172.18.100.1)
+  # [8] HAProxy 로드밸런서 (HAProxy Exporter — 사용 시 활성화)
   # ---------------------------------------------------------------------------
-  - job_name: 'fortigate-dev'
-    scrape_interval: 1m
-    scrape_timeout: 50s
-    metrics_path: /probe
-    params:
-      target: ['https://172.18.100.1:38879']
-    static_configs:
-      - targets: ['fortigate-exporter:9710']
-        labels:
-          instance: '172.18.100.1'
-          location: 'DEV_5F_Server_18'
+  # - job_name: 'haproxy'
+  #   static_configs:
+  #     - targets: ['haproxy-exporter:9101']
+
+  # ---------------------------------------------------------------------------
+  # [9] FortiGate UTM (FortiGate Exporter — FortiGate 사용 시 활성화)
+  # ---------------------------------------------------------------------------
+  # - job_name: 'fortigate'
+  #   static_configs:
+  #     - targets: ['192.168.1.1']   # [CUSTOMIZE] FortiGate 관리 IP
+  #   metrics_path: /probe
+  #   relabel_configs:
+  #     - source_labels: [__address__]
+  #       target_label: __param_target
+  #     - target_label: __address__
+  #       replacement: fortigate-exporter:9710
+
+  # ---------------------------------------------------------------------------
+  # [10] AWS CloudWatch (YACE Exporter — AWS 사용 시 활성화)
+  # ---------------------------------------------------------------------------
+  # - job_name: 'aws-cloudwatch'
+  #   static_configs:
+  #     - targets: ['aws-exporter:5000']

@@ -6,8 +6,8 @@
 global:
   resolve_timeout: 5m
   smtp_smarthost:     'smtp.gmail.com:587'
-  smtp_from:          'your-alert@gmail.com'
-  smtp_auth_username: 'your-alert@gmail.com'
+  smtp_from:          'alert@your-company.com'
+  smtp_auth_username: 'alert@your-company.com'
   smtp_auth_password: '${GMAIL_APP_PASSWORD}'   # .env에서 주입
   smtp_require_tls:   true
 
