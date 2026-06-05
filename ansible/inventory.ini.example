@@ -1,53 +1,49 @@
 # =============================================================================
-# Ansible Inventory Example
-# 실제 운영 인벤토리(dns_inventory.ini)는 .gitignore에 포함됨
-# 이 파일을 참고하여 dns_inventory.ini 작성
-#
-# ⚠️  실제 비밀번호가 포함된 파일은 절대 Git에 커밋하지 마세요
+# Ansible Inventory — 서버 목록 및 환경 변수
+# cp inventory.ini.example inventory.ini 후 실제 값 입력
+# ⚠️  inventory.ini (실제 IP/패스워드)는 Git 커밋 금지
 # =============================================================================
-#
-# 사용 예시:
-#   전체 서버:    ansible-playbook -i dns_inventory.ini <playbook>.yml
-#   특정 그룹:    ansible-playbook -i dns_inventory.ini <playbook>.yml --limit dmz_servers
-#   연결 테스트:  ansible all -i dns_inventory.ini -m ping
-#
 
+# ── 서버 그룹 ─────────────────────────────────────────────────────────────────
+[dev_server]
+192.168.1.11   # [CUSTOMIZE] Dev 서버 IP
+
+[stage_server]
+192.168.1.12   # [CUSTOMIZE] Stage 서버 IP
+
+[prod_server]
+192.168.1.13   # [CUSTOMIZE] Prod 서버 IP (신중하게)
+
+# ── 모니터링 에이전트 설치 대상 ───────────────────────────────────────────────
+[monitoring_targets]
+192.168.1.11
+192.168.1.12
+192.168.1.20   # [CUSTOMIZE] 모니터링 수집 대상 전체
+
+# ── 공통 변수 ─────────────────────────────────────────────────────────────────
 [all:vars]
-ansible_user=your_default_user
-ansible_ssh_pass=your_default_password
-ansible_become=yes
-ansible_become_method=sudo
-ansible_become_pass=your_default_password
+ansible_user=your-user                             # [CUSTOMIZE] SSH 계정
+ansible_password=your-password                     # [CUSTOMIZE] (키 인증 권장)
+ansible_become_password=your-password
 
-# =============================================================================
-# DMZ 서버 (외부 노출 서비스)
-# =============================================================================
-[dmz_servers]
-main-server        ansible_host=DMZ_SERVER_1_IP
-service-server     ansible_host=DMZ_SERVER_2_IP   ansible_user=other_user  ansible_ssh_pass=other_password
+# NFS 스토리지 정보
+nfs_server_path=192.168.1.100:/volume1/storage     # [CUSTOMIZE] NAS IP:경로
+nfs_base_mount_path=/storage
 
-# =============================================================================
-# 내부 인프라 서버
-# =============================================================================
-[internal_servers]
-vm-server-01       ansible_host=INTERNAL_SERVER_1_IP
-gitlab-srv         ansible_host=INTERNAL_SERVER_2_IP
+# Docker Registry
+docker_registry_url=registry.your-company.com     # [CUSTOMIZE]
+docker_registry_user=deploy@your-company.com       # [CUSTOMIZE]
+docker_registry_pass=                              # [CUSTOMIZE] 또는 .env에서 주입
 
-# =============================================================================
-# 팀 VM 서버
-# =============================================================================
-[team_vms]
-dev-vm-1           ansible_host=TEAM_VM_1_IP
-staging-vm-1       ansible_host=TEAM_VM_2_IP   ansible_ssh_pass=different_password
+# ── 그룹별 변수 ───────────────────────────────────────────────────────────────
+[dev_server:vars]
+env_type=dev
+node_prefix=dev
 
-# =============================================================================
-# 편의용 그룹 조합
-# =============================================================================
-[monitoring_targets:children]
-dmz_servers
-internal_servers
-team_vms
+[stage_server:vars]
+env_type=stage
+node_prefix=stage
 
-[cadvisor_targets:children]
-dmz_servers
-internal_servers
+[prod_server:vars]
+env_type=prod
+node_prefix=prod

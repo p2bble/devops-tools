@@ -1,0 +1,151 @@
+---
+# =============================================================================
+# setup-server.yml — 신규 Ubuntu 서버 초기 설정 플레이북
+#
+# 수행 작업:
+#   1. Docker CE 설치
+#   2. 사용자를 docker 그룹에 추가
+#   3. NFS 스토리지 마운트 (/storage)
+#   4. 작업 디렉토리 생성 (/data/docker)
+#   5. Docker daemon 설정 (insecure registry 등록)
+#   6. CI/CD SSH 공개키 등록
+#   7. Node Exporter 설치 (모니터링 연동)
+#
+# 사전 준비:
+#   - Ubuntu 22.04 / 24.04 LTS
+#   - ansible_user 계정에 sudo 권한
+#   - inventory.ini.example 참고하여 inventory.ini 작성
+#   - ssh_keys/ 에 CI 공개키 배치
+#
+# 실행:
+#   ansible-playbook -i inventory.ini setup-server.yml.example
+#   ansible-playbook -i inventory.ini setup-server.yml.example --limit dev_server
+#   ansible-playbook -i inventory.ini setup-server.yml.example --check  # dry-run
+# =============================================================================
+
+- name: 신규 서버 초기 설정
+  hosts: all
+  become: yes
+
+  tasks:
+
+    # ── 1. Docker 설치 ────────────────────────────────────────────────────────
+    - name: Docker 설치 필수 패키지
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - software-properties-common
+          - nfs-common
+        state: present
+        update_cache: yes
+
+    - name: Docker GPG 키 등록
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: '0644'
+
+    - name: Docker APT 저장소 추가
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] \
+               https://download.docker.com/linux/ubuntu \
+               {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Docker CE 설치
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        update_cache: yes
+
+    - name: Docker 서비스 활성화
+      systemd:
+        name: docker
+        enabled: yes
+        state: started
+
+    # ── 2. 사용자 설정 ────────────────────────────────────────────────────────
+    - name: "{{ ansible_user }}를 docker 그룹에 추가"
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    - name: 그룹 변경 적용 (연결 리셋)
+      meta: reset_connection
+
+    # ── 3. Docker daemon 설정 ─────────────────────────────────────────────────
+    - name: Docker daemon.json 설정
+      copy:
+        dest: /etc/docker/daemon.json
+        # [CUSTOMIZE] insecure-registry, bip 등 환경에 맞게 조정
+        content: |
+          {
+            "insecure-registries": ["{{ docker_registry_url }}"],
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "100m",
+              "max-file": "3"
+            }
+          }
+        mode: '0644'
+      notify: restart docker
+
+    # ── 4. NFS 마운트 ─────────────────────────────────────────────────────────
+    - name: NFS 마운트 디렉토리 생성
+      file:
+        path: "{{ nfs_base_mount_path }}"
+        state: directory
+        mode: '0755'
+
+    - name: fstab에 NFS 마운트 등록 및 마운트
+      mount:
+        path: "{{ nfs_base_mount_path }}"
+        src:  "{{ nfs_server_path }}"
+        fstype: nfs
+        opts: defaults,_netdev,nfsvers=3
+        state: mounted
+
+    # ── 5. 작업 디렉토리 생성 ────────────────────────────────────────────────
+    - name: /data/docker 디렉토리 생성
+      file:
+        path: /data/docker
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+
+    # ── 6. CI/CD SSH 공개키 등록 ─────────────────────────────────────────────
+    # [CUSTOMIZE] ssh_keys/ 디렉토리에 공개키 파일 준비
+    # 파일명 패턴: ssh_keys/ci-<env_type>.pub (예: ci-dev.pub, ci-prod.pub)
+    - name: CI/CD 공개키 등록
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        state: present
+        key: "{{ lookup('file', 'ssh_keys/ci-' + env_type + '.pub') }}"
+      when: env_type is defined
+
+    # ── 7. Node Exporter 설치 (Prometheus 모니터링 연동) ──────────────────────
+    - name: Node Exporter 컨테이너 실행
+      community.docker.docker_container:
+        name: node-exporter
+        image: prom/node-exporter:latest
+        state: started
+        restart_policy: always
+        network_mode: host
+        pid_mode: host
+        volumes:
+          - /:/host:ro,rslave
+        command: --path.rootfs=/host
+
+  handlers:
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted

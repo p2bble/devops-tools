@@ -6,14 +6,14 @@
 # 실행 예시:
 #   전체:       ansible-playbook -i dns_inventory.ini install_monitoring_agents.yml
 #   특정 그룹:  ansible-playbook -i dns_inventory.ini install_monitoring_agents.yml --limit dmz_servers
-#   특정 서버:  ansible-playbook -i dns_inventory.ini install_monitoring_agents.yml --limit pdkcld1
+#   특정 서버:  ansible-playbook -i dns_inventory.ini install_monitoring_agents.yml --limit monitoring-server
 #   드라이런:   ansible-playbook -i dns_inventory.ini install_monitoring_agents.yml --check
 #
 # 현황 (2026-03 기준):
 #   gpu-server    — cAdvisor 이미 설치됨, node-exporter 없음
-#   gitlab-srv    — gitlab-ci-pipelines-exporter:8080 운영 중
+#   gitlab    — gitlab-ci-pipelines-exporter:8080 운영 중
 #   vm-server-01  — gitlab-runner:9252 운영 중, coredns:53 운영 중
-#   pdkcld1       — 모니터링 스택 운영 서버
+#   monitoring-server       — 모니터링 스택 운영 서버
 # =============================================================================
 
 - name: Install Node Exporter on all servers
