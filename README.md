@@ -1,223 +1,181 @@
-# Infrastructure Monitoring Stack
+# DevOps Tools
 
-Prometheus 기반 온프레미스 + 클라우드 하이브리드 인프라 통합 모니터링 템플릿.
-
-물리 서버, KVM 가상화, Docker 컨테이너, 네트워크 장비(SNMP), HTTP/ICMP 엔드포인트, SSL 인증서, AWS CloudWatch를 단일 스택으로 모니터링합니다.
+온프레미스 인프라 운영에 필요한 범용 DevOps 도구 모음.  
+Prometheus 모니터링 스택, 알람 어댑터, 서버 보고서, 네트워크 백업, GitOps CI/CD 템플릿을 포함합니다.
 
 ---
 
-## 스택 구성
+## 도구 목록
+
+| 디렉토리 | 역할 |
+|---------|------|
+| [infrastructure-monitoring](#infrastructure-monitoring) | Prometheus + Grafana 모니터링 스택 |
+| [system-monitor](#system-monitor) | 서버 HTML 보고서 자동 생성·이메일 발송 |
+| [jandi-adapter](#jandi-adapter) | Alertmanager → Jandi/Slack webhook 어댑터 |
+| [blackbox](#blackbox) | HTTP/ICMP/TCP 엔드포인트 프로브 설정 |
+| [network-backup](#network-backup) | 네트워크 장비 설정 자동 백업 |
+| [gitlab-cicd](#gitlab-cicd) | GitOps 인프라 배포 파이프라인 템플릿 |
+| [scripts/backup](#scriptsbackup) | KVM·서비스·파일 백업 자동화 스크립트 |
+| [ansible](#ansible) | Node Exporter·서버 초기 설정 플레이북 |
+
+---
+
+## infrastructure-monitoring
+
+Prometheus 기반 온프레미스 + 클라우드 하이브리드 모니터링 스택.
 
 | 컴포넌트 | 버전 | 역할 |
 |---------|------|------|
-| Prometheus | v2.52.0 | 메트릭 수집 엔진 |
-| Alertmanager | v0.28.1 | 알람 라우팅 및 중복 제거 |
-| Grafana | v11.1.4 | 시각화 대시보드 |
-| SNMP Exporter | v0.26.0 | 네트워크 장비 (스위치, 방화벽, AP) |
-| Blackbox Exporter | v0.25.0 | HTTP/ICMP/SSL 엔드포인트 가용성 |
-| Jandi Adapter | v2.1.0 | 알람 → Webhook 연동 (잔디/Slack/Teams 교체 가능) |
+| Prometheus | v2.52.0 | 메트릭 수집 |
+| Alertmanager | v0.28.1 | 알람 라우팅·중복 제거 |
+| Grafana | v11.1.4 | 대시보드 시각화 |
+| SNMP Exporter | v0.26.0 | 네트워크 장비 (스위치/방화벽/AP) |
+| Blackbox Exporter | v0.25.0 | HTTP/ICMP/SSL 가용성 |
 
-**선택적 서비스** (docker-compose.yml 주석 해제):
-- HAProxy Exporter — HAProxy 로드밸런서 사용 시
-- FortiGate Exporter — FortiGate UTM REST API
-- AWS CloudWatch Exporter (YACE) — AWS EC2/RDS/ALB
-
----
-
-## 빠른 시작
+**빠른 시작:**
 
 ```bash
-git clone https://github.com/p2bble/infrastructure-monitoring.git
-cd infrastructure-monitoring
-
-# 1. 환경 변수 설정
 cp .env.example .env
-vi .env   # GRAFANA_ADMIN_PASSWORD, GMAIL_APP_PASSWORD 등 입력
-
-# 2. 서버 목록 설정 (필수)
-vi prometheus/prometheus.yml   # [CUSTOMIZE] 구간의 IP/nodename 교체
-
-# 3. 알람 수신 설정
-vi alertmanager/alertmanager.yml   # 이메일 주소 교체
-
-# 4. 실행
+vi .env                      # GRAFANA_ADMIN_PASSWORD 등 설정
+vi prometheus/prometheus.yml # [CUSTOMIZE] 구간 서버 IP 교체
 docker compose up -d
-
-# 5. 상태 확인
 ./manage.sh status
 ```
 
-| 서비스 | 기본 포트 | 비고 |
-|--------|---------|------|
-| Grafana | :3000 | `admin` / `.env` 비밀번호 |
-| Prometheus | :9099 | 메트릭 쿼리 |
-| Alertmanager | :9093 | 알람 현황 |
+대시보드: `overview` / `network` / `backup` / `log` / `idrac`  
+알람 규칙: InstanceDown, HighCPU/Memory/Disk, BackupFailed, SSLExpiry, InterfaceDown 등 35개
 
 ---
 
-## 커스터마이징 가이드
+## system-monitor
 
-### 1. 서버 추가 (`prometheus/prometheus.yml`)
+서버별 CPU·메모리·디스크 수치를 HTML 보고서로 생성하고 주간·월간 이메일 발송.
 
-`[CUSTOMIZE]` 주석이 있는 구간의 IP와 `nodename` 레이블을 실제 서버로 교체합니다.
+```bash
+# 환경변수 설정
+export SMTP_USER="report@example.com"
+export SMTP_PASS="gmail-app-password"
+export EMAIL_TO="admin@example.com"
+export EMAIL_CC="manager@example.com"
+export GRAFANA_URL="http://your-grafana:3000/d/overview"
+export REPORT_BASE="/storage/system_monitor/reports"
+export DATA_BASE="/storage/system_monitor/data"
+export WEB_BASE="http://your-nas/system_monitor/reports"
+
+# 발송
+python3 send_report_email.py weekly    # 주간 보고서
+python3 send_report_email.py monthly   # 월간 보고서
+```
+
+**기능:**
+- 서버별 평균·최대 수치 (CSV 기반, 5분 간격 수집)
+- 임계값 색상 표시 (✅ 정상 / ⚠️ 경고 / 🔴 위험)
+- 동일 호스트 중복 보고서 자동 제거
+- Grafana 실시간 링크 포함
+
+---
+
+## jandi-adapter
+
+Alertmanager webhook을 Jandi 메시지 포맷으로 변환하는 Python 프록시.  
+`JANDI_WEBHOOK_URL` 환경변수만 변경하면 Slack 등 다른 webhook으로도 전환 가능.
+
+```bash
+export JANDI_WEBHOOK_URL="https://wh.jandi.com/connect-api/webhook/..."
+python3 jandi_proxy.py
+
+# 또는 Docker
+docker run -e JANDI_WEBHOOK_URL=... -p 5001:5001 python:3.11-slim python jandi_proxy.py
+```
+
+**Alertmanager 연동:**
 
 ```yaml
-- job_name: 'node-exporter'
+receivers:
+  - name: jandi
+    webhook_configs:
+      - url: 'http://localhost:5001/alert'
+        send_resolved: true
+```
+
+알람 반복 주기: critical 4h / warning 6h / info 24h
+
+---
+
+## blackbox
+
+Blackbox Exporter 설정 템플릿. HTTP·ICMP·TCP 프로브 모듈 포함.
+
+```yaml
+# prometheus.yml 에 추가
+- job_name: 'blackbox-http'
+  metrics_path: /probe
+  params:
+    module: [http_2xx]
   static_configs:
-    - targets: ['실제서버IP:9100']
-      labels:
-        nodename: '서버명'
-        role: 'app'   # infra / app / db / dev 등 자유롭게 정의
+    - targets:
+        - https://your-service.example.com
+  relabel_configs:
+    - source_labels: [__address__]
+      target_label: __param_target
+    - source_labels: [__param_target]
+      target_label: instance
+    - target_label: __address__
+      replacement: localhost:9115
 ```
 
-Node Exporter 설치 (각 서버에서):
-```bash
-docker run -d --name node-exporter --net="host" --pid="host" \
-  -v "/:/host:ro,rslave" \
-  prom/node-exporter --path.rootfs=/host
-```
+---
 
-### 2. 알람 채널 변경 (`alertmanager/alertmanager.yml`)
+## network-backup
 
-기본 채널은 잔디(Jandi) Webhook입니다. 다른 메신저로 교체 시:
-
-| 메신저 | 교체 방법 |
-|--------|---------|
-| **Slack** | `webhook_configs.url` → Slack Incoming Webhook URL |
-| **Teams** | `webhook_configs.url` → Teams Connector URL |
-| **Telegram** | [alertmanager-bot](https://github.com/metalmatze/alertmanager-bot) 사용 |
-| **PagerDuty** | `pagerduty_configs` 섹션 사용 |
-
-### 3. 대시보드 목록 (`grafana/dashboards/`)
-
-| 파일 | 내용 |
-|------|------|
-| `overview.json` | 전체 인프라 현황 (CPU/메모리/디스크/알람) |
-| `network.json` | 네트워크 장비 트래픽 및 상태 |
-| `backup.json` | 백업 성공/실패 현황 |
-| `log.json` | Graylog/로그 수집 현황 |
-| `idrac.json` | Dell iDRAC 하드웨어 센서 |
-
-### 4. 네트워크 장비 SNMP (`snmp-exporter/snmp.yml`)
-
-지원 모듈:
-- `if_mib` — 범용 스위치/라우터 (Cisco, HP, 기타)
-- `fortigate` — FortiGate UTM
-- `aruba_cx` — Aruba 스위치
-
-### 5. 선택 서비스 활성화 (`docker-compose.yml`)
-
-`docker-compose.yml` 하단의 주석을 해제하면 됩니다.
+Netmiko 기반 네트워크 장비 설정 자동 백업.  
+Cisco IOS, HP/Aruba, FortiGate(REST API) 지원. ThreadPoolExecutor 병렬 실행.
 
 ```bash
-# FortiGate Exporter 사용 시
-cp fortigate-exporter/fortigate-key.yaml.example fortigate-exporter/fortigate-key.yaml
-vi fortigate-exporter/fortigate-key.yaml   # FortiGate IP / API Token 입력
+pip install netmiko requests
+cp devices-config.example.json devices-config.json
+vi devices-config.json   # 장비 IP·계정 입력
+python3 network-config-backup.py
 ```
 
 ---
 
-## 알람 규칙 (`prometheus/rules/alert.rules.yml`)
+## gitlab-cicd
 
-| 그룹 | 주요 알람 |
-|------|---------|
-| 서버 가용성 | InstanceDown, HighCPU, HighMemory, DiskSpaceLow |
-| 백업 | BackupFailed, BackupStale |
-| SSL 인증서 | SSLCertExpirySoon (30일/7일) |
-| 네트워크 | InterfaceDown, HighBandwidth |
-| 하드웨어 | iDRAC 온도/팬/전원 이상 |
+서버 설정 파일을 Git으로 관리하고 MR 머지 시 자동 배포하는 GitLab CI/CD 파이프라인 템플릿.
 
----
+**파이프라인 동작:**
 
-## 디렉토리 구조
+| 변경 경로 | 배포 방식 |
+|----------|---------|
+| `*/haproxy/**` | 수동 승인 → scp + restart |
+| `*/prometheus/**` | 자동 hot-reload |
+| `*/alertmanager/**` | 자동 hot-reload |
+| `*/coredns/**` | 자동 scp + docker restart |
+| `*/docker-compose.yml` | 수동 승인 |
 
-```
-.
-├── docker-compose.yml
-├── .env.example
-├── manage.sh
-├── prometheus/
-│   ├── prometheus.yml          # ← 서버 목록 커스터마이징 필수
-│   └── rules/
-│       └── alert.rules.yml     # 알람 규칙 (BackupFailed, SSLExpiry 등)
-├── alertmanager/
-│   ├── alertmanager.yml        # ← 수신 이메일/채널 설정
-│   └── templates/
-├── grafana/
-│   ├── provisioning/
-│   └── dashboards/
-│       ├── overview.json       # 전체 인프라 현황
-│       ├── network.json        # 네트워크 장비 트래픽
-│       ├── backup.json         # 백업 성공/실패 현황
-│       ├── log.json            # 로그 수집 현황
-│       └── idrac.json          # Dell iDRAC 하드웨어
-├── snmp-exporter/
-├── blackbox/
-├── fortigate-exporter/
-├── ansible/
-│   ├── install_monitoring_agents.yml
-│   └── inventory.ini.example
-└── scripts/
-    └── backup/                 # 백업 자동화 스크립트 템플릿
-        ├── backup-vm.sh.example
-        ├── backup-service.sh.example
-        ├── backup-files.sh.example
-        ├── cron.example
-        └── README.md
-```
-.
-├── docker-compose.yml
-├── .env.example
-├── manage.sh                   # 스택 관리 스크립트
-├── prometheus/
-│   ├── prometheus.yml          # ← 서버 목록 커스터마이징 필수
-│   └── rules/
-│       └── alert.rules.yml     # 알람 규칙 35개
-├── alertmanager/
-│   ├── alertmanager.yml        # ← 수신 이메일/채널 설정
-│   └── templates/
-│       └── notification.tmpl
-├── grafana/
-│   ├── provisioning/
-│   └── dashboards/
-│       ├── overview.json
-│       ├── network.json
-│       ├── backup.json
-│       ├── log.json
-│       └── idrac.json
-├── snmp-exporter/
-│   └── snmp.yml
-├── blackbox/
-│   └── blackbox.yml
-├── fortigate-exporter/         # FortiGate 사용 시
-│   └── fortigate-key.yaml.example
-└── ansible/
-    ├── install_monitoring_agents.yml   # Node Exporter 일괄 설치
-    └── inventory.ini.example
-```
+사용법: `gitlab-cicd/gitlab-ci.yml.template` → `.gitlab-ci.yml`로 복사 후 IP/경로 수정
 
 ---
 
-## 관련 자료
+## scripts/backup
 
-- [Prometheus 문서](https://prometheus.io/docs/)
-- [Grafana 문서](https://grafana.com/docs/)
-- [Alertmanager 문서](https://prometheus.io/docs/alerting/latest/alertmanager/)
-- [Node Exporter](https://github.com/prometheus/node_exporter)
-- [SNMP Exporter](https://github.com/prometheus/snmp_exporter)
-
----
-
-## 백업 스크립트 (`scripts/backup/`)
-
-모니터링과 연동되는 백업 자동화 템플릿입니다.
+백업 자동화 스크립트 템플릿 (Prometheus textfile 연동으로 `BackupFailed` 알람 자동 연동).
 
 | 스크립트 | 용도 |
 |---------|------|
-| `backup-vm.sh.example` | KVM VM 병렬 백업 (inclusion/exclusion 목록 지원) |
-| `backup-service.sh.example` | 서비스 백업파일 → NAS rsync (GitLab, PostgreSQL 등) |
-| `backup-files.sh.example` | 서버 설정파일 → NAS rsync (/etc, /usr/local/bin, /data/docker) |
+| `backup-vm.sh.example` | KVM VM 병렬 백업 |
+| `backup-service.sh.example` | 서비스 파일 → NAS rsync |
+| `backup-files.sh.example` | 서버 설정파일 → NAS rsync |
 
-모든 스크립트는 **Prometheus textfile**에 성공 여부를 기록하여 `BackupFailed` / `BackupStale` 알람과 자동 연동됩니다.
+---
 
-> 상세: [scripts/backup/README.md](./scripts/backup/README.md)
+## ansible
+
+Node Exporter 일괄 설치 및 서버 초기 설정 플레이북.
+
+```bash
+cp ansible/inventory.ini.example ansible/inventory.ini
+vi ansible/inventory.ini   # 서버 목록 입력
+ansible-playbook -i ansible/inventory.ini ansible/install_monitoring_agents.yml
+```

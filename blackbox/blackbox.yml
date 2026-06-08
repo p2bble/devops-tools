@@ -1,0 +1,74 @@
+modules:
+  # HTTP/HTTPS 엔드포인트 상태 확인
+  http_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: []   # 기본값: 2xx
+      method: GET
+      follow_redirects: true
+      preferred_ip_protocol: "ip4"
+      tls_config:
+        insecure_skip_verify: true
+
+  # HTTPS 인증서 만료 확인 (ssl_expiry_days 메트릭 수집)
+  http_2xx_tls:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      method: GET
+      follow_redirects: true
+      preferred_ip_protocol: "ip4"
+      tls_config:
+        insecure_skip_verify: false   # 인증서 검증 활성화
+
+  # ICMP Ping (서버 생존 확인)
+  icmp:
+    prober: icmp
+    timeout: 10s
+    icmp:
+      preferred_ip_protocol: "ip4"
+
+  # TCP 포트 연결 확인
+  tcp_connect:
+    prober: tcp
+    timeout: 10s
+    tcp:
+      preferred_ip_protocol: "ip4"
+
+# ── Prometheus scrape_configs 예시 ───────────────────────────────────────────
+# (prometheus.yml 에 아래 내용 추가)
+#
+# - job_name: 'blackbox-http'
+#   metrics_path: /probe
+#   params:
+#     module: [http_2xx]
+#   static_configs:
+#     - targets:
+#         - https://example.com
+#         - https://your-service.example.com
+#   relabel_configs:
+#     - source_labels: [__address__]
+#       target_label: __param_target
+#     - source_labels: [__param_target]
+#       target_label: instance
+#     - target_label: __address__
+#       replacement: localhost:9115   # blackbox exporter 주소
+#
+# - job_name: 'blackbox-icmp'
+#   metrics_path: /probe
+#   params:
+#     module: [icmp]
+#   static_configs:
+#     - targets:
+#         - 192.168.1.1    # 게이트웨이
+#         - 192.168.1.10   # 서버
+#   relabel_configs:
+#     - source_labels: [__address__]
+#       target_label: __param_target
+#     - source_labels: [__param_target]
+#       target_label: instance
+#     - target_label: __address__
+#       replacement: localhost:9115

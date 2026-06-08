@@ -1,0 +1,54 @@
+{
+    "devices": [
+      {
+        "hostname": "cisco-CBS350-24T-4X",
+        "ip": "192.168.100.1",
+        "vendor": "cisco",
+        "device_type": "cisco_ios",
+        "username": "clobot",
+        "password": "CHANGE_ME",
+        "secret": ""
+      },
+      {
+        "hostname": "fortinet-FG-80E",
+        "ip": "172.16.1.1",
+        "vendor": "fortinet",
+        "device_type": "fortinet",
+        "username": "clobot",
+        "password": "CHANGE_ME",
+        "api_token": "CHANGE_ME_OR_LEAVE_EMPTY"
+      },
+      {
+        "hostname": "cisco-SG220-26-1",
+        "ip": "192.168.100.3",
+        "vendor": "cisco",
+        "device_type": "cisco_s300",
+        "username": "clobot",
+        "password": "CHANGE_ME"
+      },
+      {
+        "hostname": "cisco-SG220-26-2",
+        "ip": "192.168.100.4",
+        "vendor": "cisco",
+        "device_type": "cisco_s300",
+        "username": "clobot",
+        "password": "CHANGE_ME"
+      },
+      {
+        "hostname": "cisco-CBS220-24T-4G-1",
+        "ip": "192.168.100.9",
+        "vendor": "cisco",
+        "device_type": "cisco_ios",
+        "username": "clobot",
+        "password": "CHANGE_ME"
+      },
+      {
+        "hostname": "cisco-CBS220-24T-4G-2",
+        "ip": "192.168.100.10",
+        "vendor": "cisco",
+        "device_type": "cisco_ios",
+        "username": "clobot",
+        "password": "CHANGE_ME"
+      }
+    ]
+  }

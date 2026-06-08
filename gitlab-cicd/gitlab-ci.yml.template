@@ -1,0 +1,142 @@
+# =============================================================================
+# GitOps Infrastructure Deploy Pipeline — Template
+# 서버 설정 파일을 Git으로 관리하고 MR 머지 시 자동 배포
+#
+# 사용 방법:
+# 1. 이 파일을 .gitlab-ci.yml 로 복사
+# 2. variables 섹션의 호스트 IP/경로를 실제 환경에 맞게 수정
+# 3. GitLab CI/CD Variables에 INFRA_SSH_KEY 등록 (SSH 개인키 전체 내용)
+# 4. 디렉토리 구조에 맞게 job rules 경로 수정
+# =============================================================================
+
+stages:
+  - validate
+  - deploy
+  - verify
+
+variables:
+  # ── 서버 정보 (환경에 맞게 수정) ─────────────────────────────────
+  SERVER_A_HOST: "192.168.1.10"        # 모니터링 서버 IP
+  SERVER_B_HOST: "192.168.1.20"        # 애플리케이션 서버 IP
+  DEPLOY_USER: "deploy"                # SSH 접속 계정
+  DEPLOY_BASE: "/data/docker"          # 서버 내 배포 기본 경로
+
+# ─── SSH 공통 설정 ───────────────────────────────────────────────────────────
+.ssh_setup:
+  image: alpine:3.18
+  before_script:
+    - apk add --no-cache openssh-client > /dev/null
+    - eval $(ssh-agent -s)
+    - echo "$INFRA_SSH_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - printf "Host *\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  ConnectTimeout 10\n" > ~/.ssh/config
+
+# =============================================================================
+# STAGE 1: VALIDATE — 배포 전 문법 검사
+# =============================================================================
+
+validate:haproxy:
+  stage: validate
+  image: haproxy:2.6-alpine
+  script:
+    - haproxy -c -f server-a/haproxy/haproxy.cfg
+  rules:
+    - changes:
+        - server-a/haproxy/**/*
+
+validate:compose:
+  stage: validate
+  image: docker:24.0-cli
+  script:
+    - docker compose -f server-a/docker-compose.yml config -q
+  rules:
+    - changes:
+        - server-a/docker-compose.yml
+
+# =============================================================================
+# STAGE 2: DEPLOY — 변경된 파일만 배포
+# =============================================================================
+
+# HAProxy — 수동 승인 필수 (서비스 영향도 높음)
+deploy:haproxy:
+  stage: deploy
+  extends: .ssh_setup
+  script:
+    - scp server-a/haproxy/haproxy.cfg $DEPLOY_USER@$SERVER_A_HOST:$DEPLOY_BASE/haproxy/haproxy.cfg
+    - ssh $DEPLOY_USER@$SERVER_A_HOST "docker exec haproxy haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg"
+    - ssh $DEPLOY_USER@$SERVER_A_HOST "docker restart haproxy"
+  rules:
+    - changes:
+        - server-a/haproxy/**/*
+  when: manual
+
+# Prometheus — hot-reload (재시작 없음)
+deploy:prometheus:
+  stage: deploy
+  extends: .ssh_setup
+  script:
+    - scp server-a/prometheus/prometheus.yml $DEPLOY_USER@$SERVER_A_HOST:$DEPLOY_BASE/prometheus/prometheus.yml
+    - scp server-a/prometheus/rules/alert.rules.yml $DEPLOY_USER@$SERVER_A_HOST:$DEPLOY_BASE/prometheus/rules/alert.rules.yml
+    - ssh $DEPLOY_USER@$SERVER_A_HOST "curl -sf -X POST http://localhost:9090/-/reload"
+  rules:
+    - changes:
+        - server-a/prometheus/**/*
+
+# Alertmanager — hot-reload
+deploy:alertmanager:
+  stage: deploy
+  extends: .ssh_setup
+  script:
+    - scp server-a/alertmanager/alertmanager.yml $DEPLOY_USER@$SERVER_A_HOST:$DEPLOY_BASE/alertmanager/alertmanager.yml
+    - ssh $DEPLOY_USER@$SERVER_A_HOST "curl -sf -X POST http://localhost:9093/-/reload"
+  rules:
+    - changes:
+        - server-a/alertmanager/**/*
+
+# CoreDNS — 자동 배포
+deploy:coredns:
+  stage: deploy
+  extends: .ssh_setup
+  script:
+    - scp server-b/coredns/Corefile $DEPLOY_USER@$SERVER_B_HOST:$DEPLOY_BASE/coredns/Corefile
+    - ssh $DEPLOY_USER@$SERVER_B_HOST "docker restart coredns"
+  rules:
+    - changes:
+        - server-b/coredns/**/*
+
+# docker-compose — 수동 승인
+deploy:compose:
+  stage: deploy
+  extends: .ssh_setup
+  script:
+    - scp server-b/docker-compose.yml $DEPLOY_USER@$SERVER_B_HOST:$DEPLOY_BASE/docker-compose.yml
+    - ssh $DEPLOY_USER@$SERVER_B_HOST "cd $DEPLOY_BASE && docker compose up -d --no-build --remove-orphans"
+  rules:
+    - changes:
+        - server-b/docker-compose.yml
+  when: manual
+
+# =============================================================================
+# STAGE 3: VERIFY — 배포 후 컨테이너 상태 확인
+# =============================================================================
+
+verify:server-a:
+  stage: verify
+  extends: .ssh_setup
+  script:
+    - |
+      for svc in haproxy prometheus alertmanager grafana; do
+        STATUS=$(ssh $DEPLOY_USER@$SERVER_A_HOST "docker inspect --format='{{.State.Status}}' $svc 2>/dev/null || echo 'not found'")
+        echo "$svc: $STATUS"
+        [ "$STATUS" = "running" ] || { echo "FAIL: $svc is not running"; exit 1; }
+      done
+  rules:
+    - changes:
+        - server-a/**/*
+  needs:
+    - job: deploy:haproxy
+      optional: true
+    - job: deploy:prometheus
+      optional: true
+    - job: deploy:alertmanager
+      optional: true
