@@ -1,0 +1,10 @@
+# Windows 스크립트 - CRLF 유지
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+*.txt   text eol=crlf
+
+# Linux/Mac 스크립트 - LF 강제 (CRLF이면 Ubuntu 실행 오류)
+*.sh    text eol=lf
+
+# 설정 파일
+config.txt  text eol=lf

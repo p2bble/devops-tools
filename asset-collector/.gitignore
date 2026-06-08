@@ -1,0 +1,4 @@
+# 수집된 결과 파일 제외 (개인정보/자산정보 포함)
+results/*.csv
+results/*.txt
+results/*.sha256

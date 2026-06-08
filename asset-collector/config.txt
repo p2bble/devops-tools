@@ -1,0 +1,15 @@
+# ============================================================
+#  자산 수집 도구 - 공유 결과 경로 설정 (선택사항)
+# ============================================================
+#
+# 비워두면 → USB/로컬의 results/ 폴더에 저장 (기본값)
+# 경로를 설정하면 → 해당 공유 폴더에 직접 저장
+#
+# Windows 네트워크 공유 예시:
+#   RESULTS_PATH=\\172.19.100.10\asset_results
+#   RESULTS_PATH=\\fileserver\share\asset_results
+#
+# Linux NFS/Samba 마운트 예시:
+#   RESULTS_PATH=/mnt/nas/asset_results
+#
+RESULTS_PATH=
