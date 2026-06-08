@@ -17,6 +17,8 @@ Prometheus 모니터링 스택, 알람 어댑터, 서버 보고서, 네트워크
 | [gitlab-cicd](#gitlab-cicd) | GitOps 인프라 배포 파이프라인 템플릿 |
 | [scripts/backup](#scriptsbackup) | KVM·서비스·파일 백업 자동화 스크립트 |
 | [ansible](#ansible) | Node Exporter·서버 초기 설정 플레이북 |
+| [ssl-auto-renew](#ssl-auto-renew) | SSL 인증서 만료 모니터링·갱신 스크립트 |
+| [asset-collector](#asset-collector) | Linux/Windows 서버 자산 정보 수집 도구 |
 
 ---
 
@@ -179,3 +181,46 @@ cp ansible/inventory.ini.example ansible/inventory.ini
 vi ansible/inventory.ini   # 서버 목록 입력
 ansible-playbook -i ansible/inventory.ini ansible/install_monitoring_agents.yml
 ```
+
+---
+
+## ssl-auto-renew
+
+SSL 인증서 만료 모니터링 및 갱신 자동화 스크립트 모음.
+
+```bash
+# 만료 30일 전 Jandi 알림
+bash script/check_ssl_expiry.sh your-domain.com
+
+# Let's Encrypt 인증서 갱신 + 서버 배포
+bash script/master_renewal_script.sh your-domain.com 2026 /etc/ssl/certs
+
+# 모니터링 cron 설정
+bash script/setup_ssl_monitor.sh
+```
+
+**기능:**
+- 만료 30일·7일 전 경고 알림 (Jandi webhook)
+- HAProxy·GitLab·Kubernetes·FortiGate 동시 배포
+- cron 기반 자동 실행
+
+---
+
+## asset-collector
+
+Linux/Windows 서버의 하드웨어·OS·소프트웨어 자산 정보를 CSV로 수집하는 도구.
+
+```bash
+# Linux
+bash Linux/collect.sh
+
+# Windows (PowerShell, 관리자 권한)
+.\Windows\run_as_admin.bat
+
+# 수집 결과 병합
+bash merge/merge_results.sh   # Linux
+.\merge\merge_results.bat     # Windows
+```
+
+**수집 항목:** CPU·메모리·디스크·OS·설치 소프트웨어·네트워크 인터페이스  
+설정 파일: `config.txt` (저장 경로, 제외 항목 등)
